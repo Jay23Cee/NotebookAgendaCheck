@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "notebookagendacheck"
+version = "0.1.0"
+description = "Local notebook + agenda check workflow"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "flet==0.24.1",
+    "nicegui==3.4.1",
+    "openpyxl==3.1.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.3",
+]

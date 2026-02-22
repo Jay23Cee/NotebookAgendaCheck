@@ -1,0 +1,2 @@
+"""Notebook + agenda check package."""
+
