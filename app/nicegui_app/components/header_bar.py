@@ -13,7 +13,6 @@ class HeaderBarHandles:
     student_select: ui.select
     checker_mode_select: ui.select
     checker_student_select: ui.select
-    teacher_indicator: ui.chip
     date_input: ui.input
     progress_chip: ui.chip
 
@@ -49,11 +48,10 @@ def build_header_bar(
             with ui.row().classes("na-user-controls"):
                 checker_mode_select = ui.select(
                     options={"teacher": "Teacher", "student": "Student"},
-                    label="User",
+                    label="Checked By",
                     value="teacher",
                     on_change=on_checker_mode_change,
                 ).classes("na-control na-user-mode")
-                teacher_indicator = ui.chip("TEACHER", selectable=False).classes("na-user-pill")
                 checker_student_select = ui.select(
                     options={},
                     label="Student checker",
@@ -63,16 +61,21 @@ def build_header_bar(
             date_input = ui.input(
                 label="Date",
                 value=initial_date,
-                on_change=on_date_change,
-                validation={"Use YYYY-MM-DD": lambda value: _is_valid_date(value)},
-            ).classes("na-control na-date-input")
+                validation={"Use MM/DD/YYYY": lambda value: _is_valid_date(value)},
+            ).props("readonly").classes("na-control na-date-input")
+            with ui.menu().props("no-parent-event") as date_menu:
+                ui.date(
+                    value=initial_date,
+                    on_change=on_date_change,
+                ).props("mask=MM/DD/YYYY").bind_value(date_input)
+            with date_input.add_slot("append"):
+                ui.icon("calendar_month").classes("cursor-pointer").on("click", date_menu.open)
 
     return HeaderBarHandles(
         grade_select=grade_select,
         student_select=student_select,
         checker_mode_select=checker_mode_select,
         checker_student_select=checker_student_select,
-        teacher_indicator=teacher_indicator,
         date_input=date_input,
         progress_chip=progress_chip,
     )
@@ -84,7 +87,7 @@ def _is_valid_date(value: str) -> bool:
     try:
         from datetime import datetime
 
-        datetime.strptime(value, "%Y-%m-%d")
+        datetime.strptime(value, "%m/%d/%Y")
     except ValueError:
         return False
     return True

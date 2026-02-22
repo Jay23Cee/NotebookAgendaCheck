@@ -48,11 +48,14 @@ class StubPersistenceService(PersistenceService):
         self,
         *,
         grade: int,
+        student_id: str | None = None,
         check_date: str | None = None,
         start_date: str | None = None,
         end_date: str | None = None,
     ) -> LoadResult:
         filtered = [row for row in self.records if row.grade == grade]
+        if student_id is not None:
+            filtered = [row for row in filtered if row.student_id == student_id]
         if check_date is not None:
             filtered = [row for row in filtered if row.date == check_date]
         if start_date is not None:
@@ -355,3 +358,59 @@ def test_set_grade_none_relocks_ui() -> None:
     assert controller.state.session.roster == []
     assert controller.state.save_history == []
     assert controller.state.session.check_mode is None
+
+
+def test_set_date_accepts_mm_dd_yyyy_and_rejects_invalid_format() -> None:
+    controller, _persistence = _controller()
+
+    valid = controller.set_date("02/22/2026")
+    invalid = controller.set_date("2026-02-22")
+
+    assert valid.ok is True
+    assert controller.state.session.check_date == "02/22/2026"
+    assert invalid.ok is False
+    assert controller.state.session.check_date == "02/22/2026"
+
+
+def test_history_rows_can_be_filtered_to_selected_student() -> None:
+    controller, persistence = _controller()
+    controller.set_grade("7")
+
+    persistence.records = [
+        CheckRecord(
+            student_id="S1",
+            student_name="Lovelace, Ada",
+            grade=7,
+            check_mode="both",
+            date="02/22/2026",
+            checker="Lovelace, Ada",
+            notebook_score=9.0,
+            agenda_present=True,
+            entry_written=True,
+            all_subjects_filled=False,
+            organized=False,
+            agenda_score=8,
+            gradebook_score=8.25,
+        ),
+        CheckRecord(
+            student_id="S2",
+            student_name="Hopper, Grace",
+            grade=7,
+            check_mode="both",
+            date="02/22/2026",
+            checker="Lovelace, Ada",
+            notebook_score=10.0,
+            agenda_present=True,
+            entry_written=True,
+            all_subjects_filled=True,
+            organized=True,
+            agenda_score=10,
+            gradebook_score=9.0,
+        ),
+    ]
+
+    rows, warnings = controller.history_rows(student_id="S2")
+
+    assert warnings == []
+    assert len(rows) == 1
+    assert rows[0].student_name == "Hopper, Grace"

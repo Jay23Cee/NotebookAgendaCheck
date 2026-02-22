@@ -79,7 +79,12 @@ class NAWorkflowController:
         return self._set_status("Check mode updated.", level="info")
 
     def set_date(self, check_date: str) -> ActionResult:
-        self.state.session.check_date = str(check_date).strip()
+        normalized = str(check_date).strip()
+        try:
+            self._validate_date(normalized)
+        except ValueError:
+            return self._set_status("Date must use MM/DD/YYYY.", level="error")
+        self.state.session.check_date = normalized
         return self._set_status("Date updated.", level="info")
 
     def set_checker_mode(self, mode_value: str) -> ActionResult:
@@ -284,6 +289,7 @@ class NAWorkflowController:
     def history_rows(
         self,
         *,
+        student_id: str | None = None,
         start_date: str | None = None,
         end_date: str | None = None,
         include_with_comments: bool = True,
@@ -294,6 +300,7 @@ class NAWorkflowController:
             return [], []
         result = self.persistence_service.load_for_class(
             grade=grade,
+            student_id=student_id,
             start_date=start_date,
             end_date=end_date,
         )
@@ -397,7 +404,7 @@ class NAWorkflowController:
         return checker_name
 
     def _validate_date(self, value: str) -> None:
-        datetime.strptime(value, "%Y-%m-%d")
+        datetime.strptime(value, "%m/%d/%Y")
 
     def _load_record_into_form(self, record: CheckRecord) -> None:
         self.state.session.check_mode = normalize_check_mode(record.check_mode)

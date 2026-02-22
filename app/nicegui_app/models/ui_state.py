@@ -28,7 +28,7 @@ class SaveHistoryEntry:
 @dataclass
 class SessionState:
     grade: int | None = None
-    check_date: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d"))
+    check_date: str = field(default_factory=lambda: datetime.now().strftime("%m/%d/%Y"))
     check_mode: CheckMode | None = None
     check_mode_locked: bool = False
     checker_mode: CheckerMode = "teacher"

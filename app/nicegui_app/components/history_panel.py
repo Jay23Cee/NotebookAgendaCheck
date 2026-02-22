@@ -23,19 +23,19 @@ def build_history_panel(
     on_filter_change: Callable[[ValueChangeEventArguments | None], None],
 ) -> HistoryPanelHandles:
     with ui.card().classes("na-card na-history-card") as root:
-        ui.label("History (Last 50)").classes("na-card-title")
+        ui.label("History (Selected Student, Last 50)").classes("na-card-title")
 
         with ui.row().classes("na-history-filters"):
             start_date_input = ui.input(
                 label="Start date",
                 value="",
-                validation={"Use YYYY-MM-DD": _is_valid_date_or_blank},
+                validation={"Use MM/DD/YYYY or YYYY-MM-DD": _is_valid_date_or_blank},
                 on_change=on_filter_change,
             ).classes("na-control na-date-input")
             end_date_input = ui.input(
                 label="End date",
                 value="",
-                validation={"Use YYYY-MM-DD": _is_valid_date_or_blank},
+                validation={"Use MM/DD/YYYY or YYYY-MM-DD": _is_valid_date_or_blank},
                 on_change=on_filter_change,
             ).classes("na-control na-date-input")
             include_with_comments = ui.checkbox("With comments", value=True, on_change=on_filter_change).classes(
@@ -78,10 +78,12 @@ def build_history_panel(
 def _is_valid_date_or_blank(value: str) -> bool:
     if not value:
         return True
-    try:
-        from datetime import datetime
+    from datetime import datetime
 
-        datetime.strptime(value, "%Y-%m-%d")
-    except ValueError:
-        return False
-    return True
+    for date_format in ("%m/%d/%Y", "%Y-%m-%d"):
+        try:
+            datetime.strptime(value, date_format)
+            return True
+        except ValueError:
+            continue
+    return False

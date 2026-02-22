@@ -35,7 +35,6 @@ class CheckPage:
         self.lock_overlay: LockOverlayHandles | None = None
 
         self._syncing = False
-        self._mode_edit_open = False
 
     def build(self) -> None:
         self.shell = build_shell()
@@ -58,7 +57,6 @@ class CheckPage:
 
             self.mode_picker = build_check_mode_picker(
                 on_mode_change=self._on_check_mode_change,
-                on_change_click=self._on_check_mode_change_click,
             )
 
             with ui.element("div").classes("na-cards-grid cards_grid") as cards_grid:
@@ -114,7 +112,6 @@ class CheckPage:
     def _on_grade_change(self, event: ValueChangeEventArguments) -> None:
         if self._syncing:
             return
-        self._mode_edit_open = False
         result = self.controller.set_grade(event.value)
         self._set_default_history_range()
         self._refresh_ui()
@@ -124,18 +121,8 @@ class CheckPage:
         if self._syncing:
             return
         result = self.controller.set_check_mode(str(event.value))
-        if result.ok:
-            self._mode_edit_open = False
         self._refresh_ui()
         self._apply_result(result, notify=False)
-
-    def _on_check_mode_change_click(self) -> None:
-        if self._syncing or self.mode_picker is None:
-            return
-        if self.controller.state.session.check_mode_locked:
-            return
-        self._mode_edit_open = True
-        self._refresh_ui()
 
     def _on_student_change(self, event: ValueChangeEventArguments) -> None:
         if self._syncing:
@@ -295,32 +282,17 @@ class CheckPage:
             self.header.checker_student_select.value = session.checker_id if session.checker_mode == "student" else None
             self.header.checker_student_select.visible = session.checker_mode == "student"
             self.header.checker_student_select.update()
-            self.header.teacher_indicator.visible = session.checker_mode == "teacher"
-            self.header.teacher_indicator.update()
 
             self.header.date_input.value = session.check_date
             self.header.date_input.update()
 
             mode = session.check_mode
             mode_selected = mode in {CHECK_MODE_NOTEBOOK_ONLY, CHECK_MODE_BOTH, CHECK_MODE_AGENDA_ONLY}
-            show_mode_chooser = (not mode_selected) or self._mode_edit_open
-            mode_label = {
-                CHECK_MODE_NOTEBOOK_ONLY: "Notebook check only",
-                CHECK_MODE_BOTH: "Notebook + Agenda check",
-                CHECK_MODE_AGENDA_ONLY: "Agenda check only",
-            }.get(mode, "-")
 
             self.mode_picker.mode_radio.value = mode if mode_selected else None
             self.mode_picker.mode_radio.update()
-            self.mode_picker.selected_chip.set_text(f"Mode: {mode_label}")
-            self.mode_picker.change_button.visible = (
-                mode_selected and not session.check_mode_locked and not session.roster_complete and not session.locked
-            )
-            self.mode_picker.change_button.update()
-            self.mode_picker.chooser_root.visible = show_mode_chooser and not session.locked
+            self.mode_picker.chooser_root.visible = not session.locked
             self.mode_picker.chooser_root.update()
-            self.mode_picker.selected_root.visible = mode_selected and not show_mode_chooser
-            self.mode_picker.selected_root.update()
 
             self.agenda_card.agenda_present.value = form.agenda_present
             self.agenda_card.agenda_present.update()
@@ -391,10 +363,6 @@ class CheckPage:
                 self.mode_picker.mode_radio,
                 interaction_enabled and not session.check_mode_locked and not session.roster_complete,
             )
-            self._set_enabled(
-                self.mode_picker.change_button,
-                interaction_enabled and mode_selected and not session.check_mode_locked and not session.roster_complete,
-            )
 
             self._set_enabled(self.agenda_card.agenda_present, agenda_controls_enabled)
             self._set_enabled(self.agenda_card.agenda_filled_today, agenda_details_enabled)
@@ -428,17 +396,26 @@ class CheckPage:
     def _flag_style(self, flag: str) -> str:
         lowered = flag.lower()
         if "missing" in lowered:
-            return "background:#fdecea;color:#9a3412;border:1px solid #f4c7be;"
+            return "background:#fbd5d5;color:#7f1d1d;border:1px solid #dca8a8;"
         if "blank" in lowered or "incomplete" in lowered or "messy" in lowered:
-            return "background:#fff6e8;color:#92400e;border:1px solid #f2d5a7;"
+            return "background:#ffe9c2;color:#7a4500;border:1px solid #e1c18b;"
         return "background:#edf2f7;color:#334155;border:1px solid #cbd5e1;"
 
     def _refresh_history_panel(self) -> None:
         if self.history_panel is None:
             return
+        target_student_id = self._history_target_student_id()
+        if target_student_id is None:
+            self.history_panel.table.rows = []
+            self.history_panel.table.update()
+            self.history_panel.warning_label.set_text("")
+            self.history_panel.warning_label.update()
+            return
+
         start_date = (self.history_panel.start_date_input.value or "").strip() or None
         end_date = (self.history_panel.end_date_input.value or "").strip() or None
         rows, warnings = self.controller.history_rows(
+            student_id=target_student_id,
             start_date=start_date,
             end_date=end_date,
             include_with_comments=bool(self.history_panel.include_with_comments.value),
@@ -470,6 +447,14 @@ class CheckPage:
         else:
             self.history_panel.warning_label.set_text("")
         self.history_panel.warning_label.update()
+
+    def _history_target_student_id(self) -> str | None:
+        session = self.controller.state.session
+        if session.active_student is not None:
+            return session.active_student.student_id
+        if session.roster_complete and self.controller.state.save_history:
+            return self.controller.state.save_history[-1].record.student_id
+        return None
 
     def _apply_result(self, result, *, notify: bool) -> None:
         if not result.message:
