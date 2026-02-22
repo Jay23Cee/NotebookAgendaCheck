@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Notebook & Agenda Check
 
 Local tool for **Notebook + Agenda checks** by **grade**.
@@ -180,3 +181,6 @@ Notes:
 - For legacy rows missing `ScoreModel`, history infers display scale:
   - `GradebookScore > 10` is treated as legacy internal `/20` and shown as `/10` by dividing by 2.
   - `GradebookScore <= 10` is treated as legacy `/10` and internal is inferred as `x2`.
+=======
+# NotebookAgendaCheck
+>>>>>>> cdf865dda87f6eca6cfc11edb01d4d0ac163e8c8
