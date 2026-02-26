@@ -52,12 +52,11 @@ body,
 
 .na-header,
 .shell_header {
-  left: var(--sidebar-w) !important;
   height: var(--header-h);
   background: transparent;
   border: none;
   box-shadow: none;
-  padding: var(--space-2) var(--content-pad) 0;
+  padding: var(--space-1) var(--content-pad) 0 calc(var(--content-pad) + var(--desktop-chrome-inset));
 }
 
 .na-header-row,
@@ -72,19 +71,19 @@ body,
   width: 100%;
   min-height: var(--topbar-h);
   display: grid;
-  grid-template-columns: minmax(220px, auto) 1fr minmax(250px, auto);
-  gap: var(--space-3);
+  grid-template-columns: minmax(180px, 220px) minmax(300px, 1fr) minmax(230px, auto);
+  gap: var(--space-2);
   align-items: center;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-2);
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-1) var(--space-2);
 }
 
 .na-header-group {
   display: flex;
-  gap: var(--space-2);
+  gap: var(--space-1);
   align-items: center;
   min-width: 0;
   flex-wrap: wrap;
@@ -99,7 +98,7 @@ body,
 }
 
 .na-control {
-  min-width: 104px;
+  min-width: 92px;
 }
 
 .na-user-controls {
@@ -111,11 +110,11 @@ body,
 }
 
 .na-user-mode {
-  min-width: 116px;
+  min-width: 104px;
 }
 
 .na-checker-student {
-  min-width: 220px;
+  min-width: 180px;
 }
 
 .na-toggle {
@@ -123,8 +122,8 @@ body,
 }
 
 .na-student-select {
-  min-width: 300px;
-  max-width: 430px;
+  min-width: 240px;
+  max-width: 360px;
 }
 
 .na-progress-chip {
@@ -137,12 +136,47 @@ body,
 
 .na-main,
 .shell_main {
-  margin-left: var(--sidebar-w);
-  margin-top: var(--header-h);
-  margin-bottom: var(--footer-h);
-  padding: var(--content-pad);
-  height: calc(100vh - var(--header-h) - var(--footer-h));
+  padding: var(--content-pad) var(--content-pad) var(--content-pad) calc(var(--content-pad) + var(--desktop-chrome-inset));
+  height: 100%;
   overflow: auto;
+}
+
+.na-page-intro {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.na-page-title {
+  font-family: var(--font-heading);
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1.15;
+}
+
+.na-top-status-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.na-top-status-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.na-top-status-chip-status {
+  font-weight: 600;
 }
 
 .na-content,
@@ -151,36 +185,7 @@ body,
   min-height: 100%;
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-}
-
-.student_strip {
-  display: flex;
-  align-items: center;
   gap: var(--space-2);
-  height: var(--student-strip-h);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-1);
-  padding: 0 var(--space-4);
-  margin-bottom: var(--space-3);
-  flex: 0 0 auto;
-}
-
-.student_icon {
-  color: var(--color-primary);
-}
-
-.student_name,
-.na-student-name {
-  font-family: var(--font-heading);
-  font-size: var(--text-lg);
-  font-weight: 700;
-  color: var(--color-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .cards_grid,
@@ -384,12 +389,11 @@ body,
 
 .na-footer,
 .shell_footer {
-  left: var(--sidebar-w) !important;
   min-height: var(--footer-h);
   background: transparent;
   border: none;
   box-shadow: none;
-  padding: 0 var(--content-pad) var(--space-2);
+  padding: 0 var(--content-pad) var(--space-2) calc(var(--content-pad) + var(--desktop-chrome-inset));
 }
 
 .na-footer-row,
@@ -517,6 +521,21 @@ textarea:focus-visible {
 }
 
 @media (max-width: 1365px) {
+  .na-header,
+  .shell_header {
+    padding: var(--space-1) var(--content-pad) 0;
+  }
+
+  .na-main,
+  .shell_main {
+    padding: var(--content-pad);
+  }
+
+  .na-footer,
+  .shell_footer {
+    padding: 0 var(--content-pad) var(--space-2);
+  }
+
   .topbar,
   .na-header-grid {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -542,14 +561,7 @@ textarea:focus-visible {
 @media (max-width: 1199px) {
   .na-header,
   .shell_header {
-    height: 138px;
-  }
-
-  .na-main,
-  .shell_main {
-    margin-top: 138px;
-    height: calc(100vh - 138px - var(--footer-h));
-    overflow: auto;
+    height: 124px;
   }
 
   .topbar,

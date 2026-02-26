@@ -62,11 +62,12 @@ SHADOW_TOKENS = {
 
 LAYOUT_TOKENS = {
     "sidebar_w": "240px",
-    "header_h": "94px",
-    "topbar_h": "72px",
-    "student_strip_h": "52px",
+    "header_h": "84px",
+    "topbar_h": "64px",
+    "student_strip_h": "44px",
     "footer_h": "108px",
     "footer_content_h": "84px",
-    "content_pad": "10px",
+    "content_pad": "8px",
+    "desktop_chrome_inset": "24px",
     "card_min_h": "calc(768px - 94px - 108px - 20px - 52px - 10px)",
 }

@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Notebook & Agenda Check
 
 Local tool for **Notebook + Agenda checks** by **grade**.
@@ -20,9 +19,12 @@ Agenda (`/10`):
 
 Notebook (`/10`):
 
-- `notebook_present`: `4`
-- `notebook_work_today`: `Complete=4`, `Partial=2`, `Missing=0`
-- `notebook_organized`: `2`
+- `present_prepared`: `Present=1`, `Not present=0`
+- `date`: `Correct=1`, `Unclear=0.5`, `Missing=0`
+- `title`: `Accurate=1`, `Vague=0.5`, `Missing=0`
+- `academic_notes`: `Detailed=3`, `Basic=1.5`, `Minimal=0`
+- `organization`: `Structured=2`, `Inconsistent=1`, `Disorganized=0`
+- `legibility_effort`: `Neat=2`, `Readable=1`, `Difficult=0`
 
 Negative comment-tag deductions are applied and capped at `5.0` points:
 
@@ -181,6 +183,3 @@ Notes:
 - For legacy rows missing `ScoreModel`, history infers display scale:
   - `GradebookScore > 10` is treated as legacy internal `/20` and shown as `/10` by dividing by 2.
   - `GradebookScore <= 10` is treated as legacy `/10` and internal is inferred as `x2`.
-=======
-# NotebookAgendaCheck
->>>>>>> cdf865dda87f6eca6cfc11edb01d4d0ac163e8c8

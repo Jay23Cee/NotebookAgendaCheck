@@ -24,7 +24,6 @@ class CheckPage:
 
         self.shell: ShellHandles | None = None
         self.header: HeaderBarHandles | None = None
-        self.student_name_label: ui.label | None = None
         self.mode_picker: CheckModePickerHandles | None = None
         self.cards_grid: ui.element | None = None
         self.agenda_card: AgendaCardHandles | None = None
@@ -51,10 +50,6 @@ class CheckPage:
             )
 
         with self.shell.content_slot:
-            with ui.row().classes("student_strip"):
-                ui.icon("person").classes("student_icon")
-                self.student_name_label = ui.label("No roster loaded").classes("na-student-name student_name")
-
             self.mode_picker = build_check_mode_picker(
                 on_mode_change=self._on_check_mode_change,
             )
@@ -236,7 +231,6 @@ class CheckPage:
             [
                 self.shell,
                 self.header,
-                self.student_name_label,
                 self.mode_picker,
                 self.cards_grid,
                 self.agenda_card,
@@ -259,12 +253,13 @@ class CheckPage:
             self.shell.class_context_label.set_text(class_text)
             self.shell.student_context_label.set_text(session.progress_text)
             self.shell.status_label.set_text(self.controller.state.status_message)
-            self.shell.status_label.classes(replace=f"na-status {self.controller.state.status_level}")
+            self.shell.status_label.classes(
+                replace=f"na-top-status-chip na-top-status-chip-status na-status {self.controller.state.status_level}"
+            )
 
             self.header.grade_select.value = str(session.grade) if session.grade is not None else None
             self.header.grade_select.update()
 
-            self.student_name_label.set_text(session.student_heading)
             self.header.progress_chip.set_text(session.progress_text)
 
             self.header.student_select.options = session.student_options
@@ -291,7 +286,7 @@ class CheckPage:
 
             self.mode_picker.mode_radio.value = mode if mode_selected else None
             self.mode_picker.mode_radio.update()
-            self.mode_picker.chooser_root.visible = not session.locked
+            self.mode_picker.chooser_root.visible = True
             self.mode_picker.chooser_root.update()
 
             self.agenda_card.agenda_present.value = form.agenda_present
