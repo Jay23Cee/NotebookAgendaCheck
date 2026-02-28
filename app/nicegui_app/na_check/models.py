@@ -12,6 +12,7 @@ NotebookQualityStatus = Literal["full", "partial", "none"]
 class RosterStudent:
     grade: str
     period: str
+    subject: str
     student_id: str
     student_name: str
 

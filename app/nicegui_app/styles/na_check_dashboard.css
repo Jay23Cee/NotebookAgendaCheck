@@ -16,7 +16,7 @@
 .na2-topbar {
   width: 100%;
   display: grid;
-  grid-template-columns: minmax(110px, 140px) minmax(110px, 140px) minmax(280px, 1.4fr) minmax(130px, 150px) auto;
+  grid-template-columns: minmax(110px, 140px) minmax(180px, 220px) minmax(280px, 1.4fr) minmax(130px, 150px) auto;
   gap: 8px;
   align-items: center;
   background: #ffffff;
@@ -98,6 +98,74 @@
 
 .na2-control {
   min-width: 0;
+}
+
+.na2-class-toggle-wrap {
+  min-width: 0;
+  gap: 2px;
+  justify-content: center;
+}
+
+.na2-class-toggle-label {
+  font-size: 11px;
+  color: #4b5d6f;
+  line-height: 1;
+}
+
+.na2-class-switch-row {
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.na2-class-side-label {
+  min-width: 66px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  border-radius: 999px;
+  border: 1px solid #d6dee5;
+  padding: 7px 10px;
+  transition: background-color 0.16s ease, color 0.16s ease, border-color 0.16s ease, opacity 0.16s ease, box-shadow 0.16s ease;
+}
+
+.na2-class-side-active {
+  background: #0b7285;
+  color: #ffffff;
+  border-color: #0b7285;
+  box-shadow: 0 0 0 1px rgba(11, 114, 133, 0.24), 0 0 0 3px rgba(139, 92, 246, 0.14), 0 0 12px rgba(139, 92, 246, 0.32);
+}
+
+.na2-class-side-inactive {
+  background: #f2f5f8;
+  color: #6b7b8b;
+  border-color: #d6dee5;
+  opacity: 0.88;
+}
+
+.na2-class-switch {
+  margin: 0 2px;
+}
+
+.na2-class-switch .q-toggle__inner {
+  min-width: 44px;
+}
+
+.na2-class-switch .q-toggle__track {
+  opacity: 1 !important;
+  background: #cfd7e2;
+  height: 20px;
+  border-radius: 999px;
+}
+
+.na2-class-switch .q-toggle__thumb {
+  color: #ffffff;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.28);
+}
+
+.na2-class-switch.q-toggle--truthy .q-toggle__track {
+  background: #0b7285;
 }
 
 .na2-sticky-toggle {

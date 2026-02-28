@@ -5,9 +5,12 @@ Local tool for **Notebook + Agenda checks** by **grade**.
 ## Safety
 
 - Student roster is read automatically from `data/mock_students.xlsx`.
+- Dashboard roster must include a `Subject` column with `Math`/`Science` values.
 - The app **does not push or sync data to Google**.
 - The app **does not write any Excel files into a save folder**.
 - Check results are auto-saved locally to `records/notebook_agenda_checks.csv`.
+- Runtime errors are logged to `records/na_check_error_log.csv`.
+- Corrupted CSV files are quarantined under `records/quarantine/` before clean-file recreation.
 
 ## Rubric
 
@@ -65,6 +68,23 @@ pip install -r requirements.txt
 
 ```powershell
 pytest -q
+```
+
+## Reliability Hardening
+
+- Save/undo operations use transactional CSV writes (`temp file -> flush -> fsync -> atomic replace`).
+- Error logging uses a resilient sink chain:
+  - Primary: `records/na_check_error_log.csv`
+  - Fallback: `stderr`
+  - Emergency: in-memory ring buffer
+- Duplicate identical errors are toast-suppressed in a 5-second window with counter text (`... (xN)`).
+- Error log columns:
+  - `TimestampUtc`, `SessionID`, `Severity`, `Source`, `Operation`, `Message`, `ExceptionType`, `ExceptionMessage`, `ContextJson`, `Traceback`
+
+Benchmark reliability overhead:
+
+```powershell
+python scripts/benchmark_na_reliability.py
 ```
 
 ## Generate Mock Excel Roster

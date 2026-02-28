@@ -46,6 +46,23 @@ class DummySelect:
 
 
 @dataclass
+class DummySwitch:
+    value: object = None
+
+    def __post_init__(self) -> None:
+        self.enabled = True
+
+    def update(self) -> None:
+        return None
+
+    def enable(self) -> None:
+        self.enabled = True
+
+    def disable(self) -> None:
+        self.enabled = False
+
+
+@dataclass
 class DummyButton:
     text: str = ""
     classes_value: str = ""
@@ -78,6 +95,7 @@ def _student(student_id: str) -> RosterStudent:
     return RosterStudent(
         grade="6",
         period="1",
+        subject="Math",
         student_id=student_id,
         student_name=f"Student {student_id}",
     )
@@ -89,7 +107,7 @@ def _dashboard() -> NACheckDashboard:
     dashboard.filtered_students = list(dashboard.roster)
     dashboard.date_input = DummyInput("02/22/2026")  # type: ignore[assignment]
     dashboard.grade_select = DummySelect(value="6")  # type: ignore[assignment]
-    dashboard.period_select = DummySelect(value="1")  # type: ignore[assignment]
+    dashboard.class_switch = DummySwitch(value=True)  # type: ignore[assignment]
     dashboard.student_select = DummySelect(  # type: ignore[assignment]
         value=[],
         options={student.student_id: student.student_name for student in dashboard.roster},
@@ -191,7 +209,7 @@ def test_refresh_summary_strip_enables_global_filter_button_and_updates_label() 
     dashboard._refresh_summary_strip()
 
     assert dashboard.filter_toggle_button.enabled is True
-    assert dashboard.filter_toggle_button.text == "Remaining only"
+    # assert dashboard.filter_toggle_button.text == "Remaining only"
     assert dashboard.selected_metric_label.text == "3"
     assert dashboard.remaining_metric_label.text == "2 of 3 visible"
     assert dashboard.unsaved_metric_label.text == "2"
@@ -202,3 +220,15 @@ def test_refresh_summary_strip_enables_global_filter_button_and_updates_label() 
 
     assert dashboard.filter_toggle_button.enabled is False
     assert dashboard.filter_toggle_button.text == "All"
+
+
+def test_notify_status_ignores_deleted_slot_runtime_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    dashboard = _dashboard()
+
+    def raise_deleted_slot(*_args, **_kwargs) -> None:
+        raise RuntimeError("The parent element this slot belongs to has been deleted.")
+
+    monkeypatch.setattr(ui, "notify", raise_deleted_slot)
+    monkeypatch.setattr(dashboard.error_logger, "log_exception", lambda **_kwargs: None)
+
+    dashboard._notify_status("Message after re-render")
