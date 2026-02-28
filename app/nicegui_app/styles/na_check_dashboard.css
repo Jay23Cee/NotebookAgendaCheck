@@ -137,6 +137,12 @@
   background: linear-gradient(180deg, #f6fff9 0%, #f2fbf5 100%);
 }
 
+.na2-card-pending {
+  border-color: #cf8b45;
+  box-shadow: 0 0 0 1px rgba(207, 139, 69, 0.18), 0 8px 18px rgba(207, 139, 69, 0.14);
+  background: linear-gradient(180deg, #fffaf3 0%, #fff4e6 100%);
+}
+
 .na2-empty-card {
   border-style: dashed;
   border-color: #c3ced8;
@@ -182,9 +188,9 @@
 }
 
 .na2-status-not-saved {
-  background: #edf2f7;
-  border: 1px solid #cbd5e1;
-  color: #334155;
+  background: #fff2df;
+  border: 1px solid #ddb381;
+  color: #8a5822;
 }
 
 .na2-status-draft {

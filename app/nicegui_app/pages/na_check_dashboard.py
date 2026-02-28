@@ -660,7 +660,12 @@ class NACheckDashboard:
 
         status_text = "Saved" if is_saved else ("Draft" if is_draft else "Not saved")
         status_class = "na2-status-saved" if is_saved else ("na2-status-draft" if is_draft else "na2-status-not-saved")
-        card_class = "na2-student-card na2-card-saved" if is_saved else "na2-student-card"
+        if is_saved:
+            card_class = "na2-student-card na2-card-saved"
+        elif is_draft:
+            card_class = "na2-student-card"
+        else:
+            card_class = "na2-student-card na2-card-pending"
 
         expanded = key in self.expanded_keys
 
