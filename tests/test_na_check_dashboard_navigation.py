@@ -166,60 +166,89 @@ def test_select_next_not_checked_skips_already_selected_students() -> None:
     assert dashboard.status_message == "Moved to next student"
 
 
-def test_toggle_not_checked_filter_prunes_picker_options_and_selection() -> None:
+def test_replace_saved_selected_cards_wraps_and_preserves_unsaved_slot() -> None:
+    dashboard = _dashboard()
+    dashboard.roster = [_student("S1"), _student("S2"), _student("S3"), _student("S4"), _student("S5")]
+    dashboard.filtered_students = list(dashboard.roster)
+    dashboard.student_select.options = {student.student_id: student.student_name for student in dashboard.roster}
+    dashboard.selected_student_ids = ["S3", "S4", "S5"]
+    dashboard.saved_keys = {_saved_key(dashboard, "S3"), _saved_key(dashboard, "S5")}
+
+    dashboard._replace_saved_selected_cards()
+
+    assert dashboard.selected_student_ids == ["S1", "S4", "S2"]
+    assert dashboard.status_message == "Replaced 2 saved card(s)"
+
+
+def test_replace_saved_selected_cards_partial_when_remaining_pool_is_short() -> None:
+    dashboard = _dashboard()
+    dashboard.roster = [_student("S1"), _student("S2"), _student("S3"), _student("S4")]
+    dashboard.filtered_students = list(dashboard.roster)
+    dashboard.student_select.options = {student.student_id: student.student_name for student in dashboard.roster}
+    dashboard.selected_student_ids = ["S1", "S2", "S3"]
+    dashboard.saved_keys = {_saved_key(dashboard, "S1"), _saved_key(dashboard, "S2")}
+
+    dashboard._replace_saved_selected_cards()
+
+    assert dashboard.selected_student_ids == ["S4", "S2", "S3"]
+    assert dashboard.status_message == "Replaced 1 saved card(s); 1 saved card(s) unchanged"
+
+
+def test_replace_saved_selected_cards_no_saved_selected_cards() -> None:
     dashboard = _dashboard()
     dashboard.selected_student_ids = ["S1", "S2"]
-    dashboard.saved_keys = {_saved_key(dashboard, "S2")}
+    dashboard.saved_keys = {_saved_key(dashboard, "S3")}
 
-    dashboard._toggle_not_checked_filter()
+    dashboard._replace_saved_selected_cards()
 
-    assert dashboard.show_not_checked_only is True
-    assert dashboard.status_message == "Showing remaining students"
-    assert set(dashboard.student_select.options) == {"S1", "S3"}
-    assert dashboard.selected_student_ids == ["S1"]
-
-    dashboard._toggle_not_checked_filter()
-
-    assert dashboard.show_not_checked_only is False
-    assert dashboard.status_message == "Showing all students"
-    assert set(dashboard.student_select.options) == {"S1", "S2", "S3"}
+    assert dashboard.selected_student_ids == ["S1", "S2"]
+    assert dashboard.status_message == "No saved selected cards to replace"
 
 
-def test_available_students_for_picker_respects_filter_state() -> None:
+def test_replace_saved_selected_cards_with_no_selected_cards() -> None:
     dashboard = _dashboard()
-    dashboard.saved_keys = {_saved_key(dashboard, "S2")}
+    dashboard.selected_student_ids = []
 
-    dashboard.show_not_checked_only = False
-    assert [student.student_id for student in dashboard._available_students_for_picker()] == ["S1", "S2", "S3"]
+    dashboard._replace_saved_selected_cards()
 
-    dashboard.show_not_checked_only = True
-    assert [student.student_id for student in dashboard._available_students_for_picker()] == ["S1", "S3"]
+    assert dashboard.selected_student_ids == []
+    assert dashboard.status_message == "No selected students"
 
 
-def test_refresh_summary_strip_enables_global_filter_button_and_updates_label() -> None:
+def test_replace_saved_selected_cards_when_no_remaining_available() -> None:
+    dashboard = _dashboard()
+    dashboard.selected_student_ids = ["S1", "S2"]
+    dashboard.saved_keys = {_saved_key(dashboard, "S1"), _saved_key(dashboard, "S3")}
+
+    dashboard._replace_saved_selected_cards()
+
+    assert dashboard.selected_student_ids == ["S1", "S2"]
+    assert dashboard.status_message == "No remaining students available to replace saved cards"
+
+
+def test_refresh_summary_strip_enables_only_remaining_button_and_updates_label() -> None:
     dashboard = _dashboard()
     dashboard.selected_metric_label = DummyLabel()  # type: ignore[assignment]
     dashboard.remaining_metric_label = DummyLabel()  # type: ignore[assignment]
     dashboard.unsaved_metric_label = DummyLabel()  # type: ignore[assignment]
-    dashboard.filter_toggle_button = DummyButton()
+    dashboard.only_remaining_button = DummyButton()
     dashboard.selected_student_ids = ["S1", "S2", "S3"]
     dashboard.saved_keys = {_saved_key(dashboard, "S1")}
     dashboard._update_draft("S2", lambda form: setattr(form, "agenda_legible", False))
 
     dashboard._refresh_summary_strip()
 
-    assert dashboard.filter_toggle_button.enabled is True
-    # assert dashboard.filter_toggle_button.text == "Remaining only"
+    assert dashboard.only_remaining_button.enabled is True
+    assert dashboard.only_remaining_button.text == "Only Remaining"
     assert dashboard.selected_metric_label.text == "3"
     assert dashboard.remaining_metric_label.text == "2 of 3 visible"
     assert dashboard.unsaved_metric_label.text == "2"
 
-    dashboard.filtered_students = []
-    dashboard.show_not_checked_only = True
+    dashboard.selected_student_ids = []
     dashboard._refresh_summary_strip()
 
-    assert dashboard.filter_toggle_button.enabled is False
-    assert dashboard.filter_toggle_button.text == "All"
+    assert dashboard.only_remaining_button.enabled is False
+    assert dashboard.only_remaining_button.text == "Only Remaining"
 
 
 def test_notify_status_ignores_deleted_slot_runtime_error(monkeypatch: pytest.MonkeyPatch) -> None:

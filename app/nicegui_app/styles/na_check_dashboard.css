@@ -312,15 +312,9 @@
   color: #145a32;
 }
 
-.na2-filter-toggle-btn {
+.na2-only-remaining-btn {
   min-width: 114px;
   justify-content: center;
-}
-
-.na2-filter-toggle-active {
-  background: #fff3d1;
-  border-color: #e4b15f;
-  color: #8a5800;
 }
 
 .na2-card-utility-btn {

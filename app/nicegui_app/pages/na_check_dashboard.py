@@ -144,12 +144,11 @@ class NACheckDashboard:
         self.sticky_choices_switch: ui.switch | None = None
         self._missing_subject_warning_grade: str | None = None
 
-        self.show_not_checked_only = False
         self.selected_student_ids: list[str] = []
 
         self.save_all_button: ui.button | None = None
         self.undo_button: ui.button | None = None
-        self.filter_toggle_button: ui.button | None = None
+        self.only_remaining_button: ui.button | None = None
 
         self.selected_metric_label: ui.label | None = None
         self.remaining_metric_label: ui.label | None = None
@@ -299,10 +298,10 @@ class NACheckDashboard:
                     "Undo",
                     on_click=self._undo_last_saved,
                 ).classes("na2-btn na2-btn-secondary na2-status-action-btn")
-                # self.filter_toggle_button = ui.button(
-                #     "Remaining only",
-                #     on_click=self._toggle_not_checked_filter,
-                # ).classes("na2-btn na2-btn-tertiary na2-status-action-btn na2-filter-toggle-btn")
+                self.only_remaining_button = ui.button(
+                    "Only Remaining",
+                    on_click=self._replace_saved_selected_cards,
+                ).classes("na2-btn na2-btn-tertiary na2-status-action-btn na2-only-remaining-btn")
 
     def _initialize_selectors(self) -> None:
         assert self.grade_select is not None
@@ -488,7 +487,7 @@ class NACheckDashboard:
         self._set_enabled(self.student_select, True)
         self._refresh_class_switch_visual_state()
 
-    def _refresh_student_options(self, *, reset_selection: bool, notify_pruned: bool = False) -> None:
+    def _refresh_student_options(self, *, reset_selection: bool) -> None:
         assert self.grade_select is not None
         assert self.class_switch is not None
         assert self.student_select is not None
@@ -506,8 +505,7 @@ class NACheckDashboard:
             student for student in self.roster if student.grade == grade and student.subject == subject
         ]
 
-        available_students = self._available_students_for_picker()
-        options = {student.student_id: self._student_option_label(student) for student in available_students}
+        options = {student.student_id: self._student_option_label(student) for student in self.filtered_students}
 
         previous_selection = list(self.selected_student_ids)
         new_selection: list[str]
@@ -519,13 +517,6 @@ class NACheckDashboard:
         self.student_select.options = options
         self.student_select.update()
         self._apply_selected_student_values(new_selection)
-
-        if notify_pruned and len(new_selection) < len(previous_selection):
-            removed = len(previous_selection) - len(new_selection)
-            self._notify_status(
-                f"Hidden {removed} saved student(s) while Remaining filter is on",
-                type="warning",
-            )
 
     def _render_batch_cards(self) -> None:
         if self.batch_grid is None:
@@ -1036,7 +1027,7 @@ class NACheckDashboard:
             self.status_message = message
             self._notify_status(message, type="warning")
 
-        self._refresh_student_options(reset_selection=False, notify_pruned=self.show_not_checked_only)
+        self._refresh_student_options(reset_selection=False)
         self._render_batch_cards()
         self._refresh_summary_strip()
         self._persist_preferences()
@@ -1095,23 +1086,11 @@ class NACheckDashboard:
         self._set_write_state(WRITE_STATE_SAVED)
 
         self.status_message = message
-        self._refresh_student_options(reset_selection=False, notify_pruned=self.show_not_checked_only)
+        self._refresh_student_options(reset_selection=False)
         self._render_batch_cards()
         self._refresh_summary_strip()
         self._persist_preferences()
         self._set_write_state(WRITE_STATE_IDLE)
-
-    def _toggle_not_checked_filter(self) -> None:
-        self.show_not_checked_only = not self.show_not_checked_only
-        if self.show_not_checked_only:
-            self.status_message = "Showing remaining students"
-        else:
-            self.status_message = "Showing all students"
-        self._refresh_student_options(reset_selection=False, notify_pruned=True)
-        self._render_batch_cards()
-        self._refresh_summary_strip()
-        self._notify_status(self.status_message)
-        self._persist_preferences()
 
     def _select_next_not_checked(self, clicked_student_id: str) -> None:
         index_by_student_id = {student.student_id: index for index, student in enumerate(self.filtered_students)}
@@ -1134,18 +1113,9 @@ class NACheckDashboard:
             self._persist_preferences()
             return
 
-        anchor = index_by_student_id[clicked_student_id]
         blocked_ids = set(self.selected_student_ids)
         blocked_ids.discard(clicked_student_id)
-
-        replacement_id = next(
-            (
-                student_id
-                for student_id in remaining_ids
-                if index_by_student_id[student_id] > anchor and student_id not in blocked_ids
-            ),
-            None,
-        )
+        replacement_id = self._find_next_remaining_candidate(clicked_student_id, blocked_ids=blocked_ids, wrap=False)
 
         if replacement_id is None:
             self.status_message = "No later remaining student available"
@@ -1164,17 +1134,79 @@ class NACheckDashboard:
         self._refresh_summary_strip()
         self._persist_preferences()
 
-    def _refresh_filter_toggle_button(self) -> None:
-        if self.filter_toggle_button is None:
+    def _find_next_remaining_candidate(self, anchor_student_id: str, *, blocked_ids: set[str], wrap: bool) -> str | None:
+        index_by_student_id = {student.student_id: index for index, student in enumerate(self.filtered_students)}
+        anchor_index = index_by_student_id.get(anchor_student_id)
+        if anchor_index is None:
+            return None
+
+        ordered_ids = [student.student_id for student in self.filtered_students]
+        search_order = ordered_ids[anchor_index + 1 :]
+        if wrap:
+            search_order += ordered_ids[:anchor_index]
+
+        for student_id in search_order:
+            if student_id == anchor_student_id or student_id in blocked_ids:
+                continue
+            if self._draft_key(student_id) in self.saved_keys:
+                continue
+            return student_id
+        return None
+
+    def _replace_saved_selected_cards(self) -> None:
+        if not self.selected_student_ids:
+            self.status_message = "No selected students"
+            self._refresh_summary_strip()
+            self._notify_status(self.status_message, type="warning")
+            self._persist_preferences()
             return
-        # self.filter_toggle_button.set_text("All" if self.show_not_checked_only else "Remaining only")
-        self.filter_toggle_button.classes(
-            replace=(
-                "na2-btn na2-btn-tertiary na2-status-action-btn na2-filter-toggle-btn na2-filter-toggle-active"
-                if self.show_not_checked_only
-                else "na2-btn na2-btn-tertiary na2-status-action-btn na2-filter-toggle-btn"
-            )
-        )
+
+        index_by_student_id = {student.student_id: index for index, student in enumerate(self.filtered_students)}
+        selected_saved_indices = [
+            index
+            for index, student_id in enumerate(self.selected_student_ids)
+            if student_id in index_by_student_id and self._draft_key(student_id) in self.saved_keys
+        ]
+        if not selected_saved_indices:
+            self.status_message = "No saved selected cards to replace"
+            self._refresh_summary_strip()
+            self._notify_status(self.status_message, type="warning")
+            self._persist_preferences()
+            return
+
+        updated_ids = list(self.selected_student_ids)
+        replaced_count = 0
+        unchanged_count = 0
+        for selected_index in selected_saved_indices:
+            anchor_student_id = updated_ids[selected_index]
+            blocked_ids = set(updated_ids)
+            blocked_ids.discard(anchor_student_id)
+            replacement_id = self._find_next_remaining_candidate(anchor_student_id, blocked_ids=blocked_ids, wrap=True)
+            if replacement_id is None:
+                unchanged_count += 1
+                continue
+            updated_ids[selected_index] = replacement_id
+            replaced_count += 1
+
+        if replaced_count == 0:
+            self.status_message = "No remaining students available to replace saved cards"
+            self._refresh_summary_strip()
+            self._notify_status(self.status_message, type="warning")
+            self._persist_preferences()
+            return
+
+        self._apply_selected_student_values(updated_ids)
+        self._render_batch_cards()
+        self._refresh_summary_strip()
+        self._persist_preferences()
+
+        if unchanged_count == 0:
+            self.status_message = f"Replaced {replaced_count} saved card(s)"
+            self._notify_status(self.status_message, type="positive")
+            return
+
+        self.status_message = f"Replaced {replaced_count} saved card(s); {unchanged_count} saved card(s) unchanged"
+        self._notify_status(self.status_message, type="warning")
 
     def _refresh_summary_strip(self) -> None:
         if not all(
@@ -1211,12 +1243,12 @@ class NACheckDashboard:
             self.unsaved_metric_tooltip.set_text(
                 f"{unsaved_selected_count} selected students have changes not saved"
             )
-        self._refresh_filter_toggle_button()
 
         if self.save_all_button is not None:
             self._set_enabled(self.save_all_button, bool(students))
-        if self.filter_toggle_button is not None:
-            self._set_enabled(self.filter_toggle_button, bool(self.filtered_students))
+        if self.only_remaining_button is not None:
+            self.only_remaining_button.set_text("Only Remaining")
+            self._set_enabled(self.only_remaining_button, bool(students))
         if self.undo_button is not None:
             self._set_enabled(self.undo_button, bool(self.save_transactions))
 
@@ -1263,11 +1295,6 @@ class NACheckDashboard:
         for record in saved_refs:
             if record.check_date == check_date:
                 self.saved_keys.add((record.student_id, record.check_date))
-
-    def _available_students_for_picker(self) -> list[RosterStudent]:
-        if not self.show_not_checked_only:
-            return list(self.filtered_students)
-        return [student for student in self.filtered_students if self._draft_key(student.student_id) not in self.saved_keys]
 
     def _student_option_label(self, student: RosterStudent) -> str:
         prefix = SAVED_OPTION_PREFIX if self._draft_key(student.student_id) in self.saved_keys else TODO_OPTION_PREFIX
