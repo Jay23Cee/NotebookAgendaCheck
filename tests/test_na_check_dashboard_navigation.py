@@ -111,7 +111,7 @@ def test_select_next_not_checked_replaces_only_clicked_slot() -> None:
     dashboard._select_next_not_checked("S2")
 
     assert dashboard.selected_student_ids == ["S1", "S4", "S3"]
-    assert dashboard.status_message == "Moved to next unchecked student."
+    assert dashboard.status_message == "Moved to next student"
 
 
 def test_select_next_not_checked_stops_at_end_without_wrap() -> None:
@@ -121,7 +121,7 @@ def test_select_next_not_checked_stops_at_end_without_wrap() -> None:
     dashboard._select_next_not_checked("S3")
 
     assert dashboard.selected_student_ids == ["S3"]
-    assert dashboard.status_message == "No later unchecked student available."
+    assert dashboard.status_message == "No later remaining student available"
 
 
 def test_select_next_not_checked_when_all_checked_keeps_selection() -> None:
@@ -132,7 +132,7 @@ def test_select_next_not_checked_when_all_checked_keeps_selection() -> None:
     dashboard._select_next_not_checked("S2")
 
     assert dashboard.selected_student_ids == ["S2", "S3"]
-    assert dashboard.status_message == "All students checked for this date."
+    assert dashboard.status_message == "No remaining students for this date"
 
 
 def test_select_next_not_checked_skips_already_selected_students() -> None:
@@ -145,7 +145,7 @@ def test_select_next_not_checked_skips_already_selected_students() -> None:
     dashboard._select_next_not_checked("S1")
 
     assert dashboard.selected_student_ids == ["S3", "S2", "S4"]
-    assert dashboard.status_message == "Moved to next unchecked student."
+    assert dashboard.status_message == "Moved to next student"
 
 
 def test_toggle_not_checked_filter_prunes_picker_options_and_selection() -> None:
@@ -156,14 +156,14 @@ def test_toggle_not_checked_filter_prunes_picker_options_and_selection() -> None
     dashboard._toggle_not_checked_filter()
 
     assert dashboard.show_not_checked_only is True
-    assert dashboard.status_message == "Showing only not-checked students."
+    assert dashboard.status_message == "Showing remaining students"
     assert set(dashboard.student_select.options) == {"S1", "S3"}
     assert dashboard.selected_student_ids == ["S1"]
 
     dashboard._toggle_not_checked_filter()
 
     assert dashboard.show_not_checked_only is False
-    assert dashboard.status_message == "Showing all students."
+    assert dashboard.status_message == "Showing all students"
     assert set(dashboard.student_select.options) == {"S1", "S2", "S3"}
 
 
@@ -180,21 +180,25 @@ def test_available_students_for_picker_respects_filter_state() -> None:
 
 def test_refresh_summary_strip_enables_global_filter_button_and_updates_label() -> None:
     dashboard = _dashboard()
-    dashboard.group_summary_label = DummyLabel()  # type: ignore[assignment]
-    dashboard.progress_summary_label = DummyLabel()  # type: ignore[assignment]
-    dashboard.card_summary_label = DummyLabel()  # type: ignore[assignment]
-    dashboard.status_label = DummyLabel()  # type: ignore[assignment]
+    dashboard.selected_metric_label = DummyLabel()  # type: ignore[assignment]
+    dashboard.remaining_metric_label = DummyLabel()  # type: ignore[assignment]
+    dashboard.unsaved_metric_label = DummyLabel()  # type: ignore[assignment]
     dashboard.filter_toggle_button = DummyButton()
-    dashboard.selected_student_ids = ["S1"]
+    dashboard.selected_student_ids = ["S1", "S2", "S3"]
+    dashboard.saved_keys = {_saved_key(dashboard, "S1")}
+    dashboard._update_draft("S2", lambda form: setattr(form, "agenda_legible", False))
 
     dashboard._refresh_summary_strip()
 
     assert dashboard.filter_toggle_button.enabled is True
-    assert dashboard.filter_toggle_button.text == "Not Checked Only"
+    assert dashboard.filter_toggle_button.text == "Remaining only"
+    assert dashboard.selected_metric_label.text == "3"
+    assert dashboard.remaining_metric_label.text == "2 of 3 visible"
+    assert dashboard.unsaved_metric_label.text == "2"
 
     dashboard.filtered_students = []
     dashboard.show_not_checked_only = True
     dashboard._refresh_summary_strip()
 
     assert dashboard.filter_toggle_button.enabled is False
-    assert dashboard.filter_toggle_button.text == "Show All"
+    assert dashboard.filter_toggle_button.text == "All"

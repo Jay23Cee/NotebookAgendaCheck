@@ -92,7 +92,7 @@ class NACheckDashboard:
         self.save_transactions: list[SaveTransaction] = []
 
         self._syncing = False
-        self.status_message = "Select grade, period, and students to start grading."
+        self.status_message = "Select grade, period, and students to start grading"
 
         self.grade_select: ui.select | None = None
         self.period_select: ui.select | None = None
@@ -107,10 +107,12 @@ class NACheckDashboard:
         self.undo_button: ui.button | None = None
         self.filter_toggle_button: ui.button | None = None
 
-        self.group_summary_label: ui.label | None = None
-        self.progress_summary_label: ui.label | None = None
-        self.card_summary_label: ui.label | None = None
-        self.status_label: ui.label | None = None
+        self.selected_metric_label: ui.label | None = None
+        self.remaining_metric_label: ui.label | None = None
+        self.unsaved_metric_label: ui.label | None = None
+        self.selected_metric_tooltip: ui.label | None = None
+        self.remaining_metric_tooltip: ui.label | None = None
+        self.unsaved_metric_tooltip: ui.label | None = None
 
         self.batch_grid: ui.element | None = None
 
@@ -120,8 +122,7 @@ class NACheckDashboard:
         with ui.element("div").classes("na2-page"):
             with ui.element("div").classes("na2-sticky-wrap"):
                 self._build_top_bar()
-                self._build_global_actions()
-                self._build_summary_strip()
+                self._build_status_action_bar()
             self.batch_grid = ui.element("div").classes("na2-batch-grid na2-cols-3")
 
         ui.keyboard(on_key=self._on_keyboard, repeating=False, ignore=["textarea"])
@@ -217,35 +218,41 @@ class NACheckDashboard:
                 on_change=self._on_sticky_toggle,
             ).classes("na2-sticky-toggle")
 
-    def _build_global_actions(self) -> None:
-        with ui.row().classes("na2-actions-row"):
-            self.save_all_button = ui.button(
-                "Save Selected",
-                on_click=self._save_selected_students,
-            ).classes("na2-btn na2-btn-primary")
-            self.undo_button = ui.button(
-                "Undo Last Save",
-                on_click=self._undo_last_saved,
-            ).classes("na2-btn na2-btn-secondary")
-            self.filter_toggle_button = ui.button(
-                "Not Checked Only",
-                on_click=self._toggle_not_checked_filter,
-            ).classes("na2-btn na2-btn-secondary na2-filter-toggle-btn")
+    def _build_status_action_bar(self) -> None:
+        with ui.row().classes("na2-status-action-bar"):
+            with ui.row().classes("na2-status-metrics"):
+                with ui.element("div").classes("na2-status-metric na2-status-metric-selected"):
+                    ui.label("Selected").classes("na2-metric-label")
+                    self.selected_metric_label = ui.label("0").classes("na2-metric-value")
+                    self.selected_metric_tooltip = self.selected_metric_label.tooltip("0 students selected")
 
-    def _build_summary_strip(self) -> None:
-        with ui.row().classes("na2-summary-strip"):
-            with ui.column().classes("na2-summary-chip"):
-                ui.label("Selected").classes("na2-summary-title")
-                self.group_summary_label = ui.label(f"Selected 0 of {MAX_SELECTED_STUDENTS}").classes("na2-summary-value")
-            with ui.column().classes("na2-summary-chip"):
-                ui.label("Unchecked").classes("na2-summary-title")
-                self.progress_summary_label = ui.label("Unchecked 0 of 0").classes("na2-summary-value")
-            with ui.column().classes("na2-summary-chip"):
-                ui.label("Cards").classes("na2-summary-title")
-                self.card_summary_label = ui.label("Saved: 0 | Draft: 0 | Not saved: 0").classes("na2-summary-value")
-            with ui.column().classes("na2-summary-chip na2-summary-status"):
-                ui.label("Status").classes("na2-summary-title")
-                self.status_label = ui.label(self.status_message).classes("na2-status-text")
+                with ui.element("div").classes("na2-status-metric na2-status-metric-remaining"):
+                    ui.label("Remaining").classes("na2-metric-label")
+                    self.remaining_metric_label = ui.label("0 of 0 visible").classes("na2-metric-value")
+                    self.remaining_metric_tooltip = self.remaining_metric_label.tooltip(
+                        "0 students still need grading from 0 visible"
+                    )
+
+                with ui.element("div").classes("na2-status-metric na2-status-metric-unsaved"):
+                    ui.label("Unsaved changes").classes("na2-metric-label")
+                    self.unsaved_metric_label = ui.label("0").classes("na2-metric-value")
+                    self.unsaved_metric_tooltip = self.unsaved_metric_label.tooltip(
+                        "0 selected students have changes not saved"
+                    )
+
+            with ui.row().classes("na2-status-actions"):
+                self.save_all_button = ui.button(
+                    "Save",
+                    on_click=self._save_selected_students,
+                ).classes("na2-btn na2-btn-primary na2-status-action-btn")
+                self.undo_button = ui.button(
+                    "Undo",
+                    on_click=self._undo_last_saved,
+                ).classes("na2-btn na2-btn-secondary na2-status-action-btn")
+                self.filter_toggle_button = ui.button(
+                    "Remaining only",
+                    on_click=self._toggle_not_checked_filter,
+                ).classes("na2-btn na2-btn-tertiary na2-status-action-btn na2-filter-toggle-btn")
 
     def _initialize_selectors(self) -> None:
         assert self.grade_select is not None
@@ -340,10 +347,8 @@ class NACheckDashboard:
             return
         normalized = self._normalized_check_date(self.date_input.value if self.date_input else None)
         if normalized is None:
-            self.status_message = "Date must use MM/DD/YYYY."
-            if self.status_label is not None:
-                self.status_label.set_text(self.status_message)
-            ui.notify(self.status_message, type="warning")
+            self.status_message = "Date must use MM/DD/YYYY"
+            self._notify_status(self.status_message, type="warning")
             return
         assert self.date_input is not None
         self.date_input.value = normalized
@@ -407,7 +412,10 @@ class NACheckDashboard:
 
         if notify_pruned and len(new_selection) < len(previous_selection):
             removed = len(previous_selection) - len(new_selection)
-            ui.notify(f"Hidden {removed} saved student(s) while Not Checked filter is on.", type="warning")
+            self._notify_status(
+                f"Hidden {removed} saved student(s) while Remaining filter is on",
+                type="warning",
+            )
 
     def _render_batch_cards(self) -> None:
         if self.batch_grid is None:
@@ -447,9 +455,9 @@ class NACheckDashboard:
                 with ui.row().classes("na2-card-header-actions"):
                     status_chip = ui.chip("Not saved", selectable=False).classes("na2-card-status na2-status-not-saved")
                     next_ungraded_button = ui.button(
-                        "Next Ungraded",
+                        "Next Remaining",
                         on_click=lambda sid=student.student_id: self._select_next_not_checked(sid),
-                    ).props("dense no-caps").classes("na2-btn na2-btn-secondary na2-filter-toggle-btn")
+                    ).props("dense no-caps").classes("na2-btn na2-btn-secondary na2-card-utility-btn")
 
             lock_hint = ui.label("").classes("na2-lock-hint")
 
@@ -713,8 +721,8 @@ class NACheckDashboard:
             card.root.classes(replace=card_class)
             card.status_chip.set_text(status_text)
             card.status_chip.classes(replace=f"na2-card-status {status_class}")
-            card.next_ungraded_button.set_text("Next Ungraded")
-            card.next_ungraded_button.classes(replace="na2-btn na2-btn-secondary na2-filter-toggle-btn")
+            card.next_ungraded_button.set_text("Next Remaining")
+            card.next_ungraded_button.classes(replace="na2-btn na2-btn-secondary na2-card-utility-btn")
 
             card.agenda_present.value = "yes" if draft.agenda_present else "no"
             card.agenda_present.update()
@@ -800,18 +808,18 @@ class NACheckDashboard:
 
     def _save_students(self, students: list[RosterStudent]) -> None:
         if not students:
-            message = "No selected students."
+            message = "No selected students"
             self.status_message = message
             self._refresh_summary_strip()
-            ui.notify(message, type="warning")
+            self._notify_status(message, type="warning")
             return
 
         check_date = self._normalized_check_date(self.date_input.value if self.date_input else None)
         if check_date is None:
-            message = "Date must use MM/DD/YYYY before saving."
+            message = "Date must use MM/DD/YYYY before saving"
             self.status_message = message
             self._refresh_summary_strip()
-            ui.notify(message, type="negative")
+            self._notify_status(message, type="negative")
             return
 
         grade = str(self.grade_select.value) if self.grade_select and self.grade_select.value is not None else ""
@@ -884,19 +892,19 @@ class NACheckDashboard:
             self.save_transactions.append(SaveTransaction(entries=snapshots))
 
         if rows_to_save and not skipped:
-            message = f"Saved {len(rows_to_save)} student(s)."
+            message = f"Saved {len(rows_to_save)} student(s)"
             self.status_message = message
-            ui.notify(message, type="positive")
+            self._notify_status(message, type="positive")
         elif rows_to_save and skipped:
             skipped_text = " | ".join(skipped)
-            message = f"Saved {len(rows_to_save)} student(s). Skipped: {skipped_text}"
+            message = f"Saved {len(rows_to_save)} student(s); skipped: {skipped_text}"
             self.status_message = message
-            ui.notify(message, type="warning")
+            self._notify_status(message, type="warning")
         else:
-            skipped_text = " | ".join(skipped) if skipped else "No eligible students to save."
-            message = f"No students saved. {skipped_text}"
+            skipped_text = " | ".join(skipped) if skipped else "No eligible students to save"
+            message = f"No students saved; {skipped_text}"
             self.status_message = message
-            ui.notify(message, type="warning")
+            self._notify_status(message, type="warning")
 
         self._refresh_student_options(reset_selection=False, notify_pruned=self.show_not_checked_only)
         self._render_batch_cards()
@@ -905,10 +913,10 @@ class NACheckDashboard:
 
     def _undo_last_saved(self) -> None:
         if not self.save_transactions:
-            message = "No save transaction to undo."
+            message = "No save transaction to undo"
             self.status_message = message
             self._refresh_summary_strip()
-            ui.notify(message, type="warning")
+            self._notify_status(message, type="warning")
             return
 
         transaction = self.save_transactions.pop()
@@ -917,10 +925,10 @@ class NACheckDashboard:
 
         if removed <= 0:
             self.save_transactions.append(transaction)
-            message = "Unable to undo the last save transaction."
+            message = "Unable to undo the last save transaction"
             self.status_message = message
             self._refresh_summary_strip()
-            ui.notify(message, type="negative")
+            self._notify_status(message, type="negative")
             return
 
         removed_entries = transaction.entries[-removed:]
@@ -932,11 +940,11 @@ class NACheckDashboard:
             remaining_entries = transaction.entries[: requested - removed]
             if remaining_entries:
                 self.save_transactions.append(SaveTransaction(entries=remaining_entries))
-            message = "Partially undid the last save transaction."
-            ui.notify(message, type="warning")
+            message = "Partially undid the last save transaction"
+            self._notify_status(message, type="warning")
         else:
-            message = "Undid the last save transaction."
-            ui.notify(message, type="positive")
+            message = "Undid the last save transaction"
+            self._notify_status(message, type="positive")
 
         self.status_message = message
         self._refresh_student_options(reset_selection=False, notify_pruned=self.show_not_checked_only)
@@ -947,32 +955,33 @@ class NACheckDashboard:
     def _toggle_not_checked_filter(self) -> None:
         self.show_not_checked_only = not self.show_not_checked_only
         if self.show_not_checked_only:
-            self.status_message = "Showing only not-checked students."
+            self.status_message = "Showing remaining students"
         else:
-            self.status_message = "Showing all students."
+            self.status_message = "Showing all students"
         self._refresh_student_options(reset_selection=False, notify_pruned=True)
         self._render_batch_cards()
         self._refresh_summary_strip()
+        self._notify_status(self.status_message)
         self._persist_preferences()
 
     def _select_next_not_checked(self, clicked_student_id: str) -> None:
         index_by_student_id = {student.student_id: index for index, student in enumerate(self.filtered_students)}
-        unchecked_ids = [
+        remaining_ids = [
             student.student_id
             for student in self.filtered_students
             if self._draft_key(student.student_id) not in self.saved_keys
         ]
-        if not unchecked_ids:
-            self.status_message = "All students checked for this date."
+        if not remaining_ids:
+            self.status_message = "No remaining students for this date"
             self._refresh_summary_strip()
-            ui.notify(self.status_message, type="positive")
+            self._notify_status(self.status_message, type="positive")
             self._persist_preferences()
             return
 
         if clicked_student_id not in self.selected_student_ids or clicked_student_id not in index_by_student_id:
-            self.status_message = "Selected card is no longer available."
+            self.status_message = "Selected card is no longer available"
             self._refresh_summary_strip()
-            ui.notify(self.status_message, type="warning")
+            self._notify_status(self.status_message, type="warning")
             self._persist_preferences()
             return
 
@@ -983,16 +992,16 @@ class NACheckDashboard:
         replacement_id = next(
             (
                 student_id
-                for student_id in unchecked_ids
+                for student_id in remaining_ids
                 if index_by_student_id[student_id] > anchor and student_id not in blocked_ids
             ),
             None,
         )
 
         if replacement_id is None:
-            self.status_message = "No later unchecked student available."
+            self.status_message = "No later remaining student available"
             self._refresh_summary_strip()
-            ui.notify(self.status_message, type="warning")
+            self._notify_status(self.status_message, type="warning")
             self._persist_preferences()
             return
 
@@ -1000,59 +1009,59 @@ class NACheckDashboard:
         clicked_index = updated_ids.index(clicked_student_id)
         updated_ids[clicked_index] = replacement_id
         self._apply_selected_student_values(updated_ids)
-        self.status_message = "Moved to next unchecked student."
+        self.status_message = "Moved to next student"
         self._render_batch_cards()
         self._refresh_summary_strip()
+        self._notify_status(self.status_message)
         self._persist_preferences()
 
     def _refresh_filter_toggle_button(self) -> None:
         if self.filter_toggle_button is None:
             return
-        self.filter_toggle_button.set_text("Show All" if self.show_not_checked_only else "Not Checked Only")
+        self.filter_toggle_button.set_text("All" if self.show_not_checked_only else "Remaining only")
         self.filter_toggle_button.classes(
             replace=(
-                "na2-btn na2-btn-secondary na2-filter-toggle-btn na2-filter-toggle-active"
+                "na2-btn na2-btn-tertiary na2-status-action-btn na2-filter-toggle-btn na2-filter-toggle-active"
                 if self.show_not_checked_only
-                else "na2-btn na2-btn-secondary na2-filter-toggle-btn"
+                else "na2-btn na2-btn-tertiary na2-status-action-btn na2-filter-toggle-btn"
             )
         )
 
     def _refresh_summary_strip(self) -> None:
         if not all(
             [
-                self.group_summary_label,
-                self.progress_summary_label,
-                self.card_summary_label,
-                self.status_label,
+                self.selected_metric_label,
+                self.remaining_metric_label,
+                self.unsaved_metric_label,
             ]
         ):
             return
 
-        total_students = len(self.filtered_students)
-        unchecked_students = [
+        visible_count = len(self.filtered_students)
+        remaining_students = [
             student for student in self.filtered_students if self._draft_key(student.student_id) not in self.saved_keys
         ]
         students = self._current_selected_students()
-        saved_count = 0
-        draft_count = 0
-        not_saved_count = 0
-
-        for student in students:
-            key = self._draft_key(student.student_id)
-            form = apply_auto_rules(self._ensure_draft(student.student_id))
-            if key in self.saved_keys:
-                saved_count += 1
-            elif form != default_form_state():
-                draft_count += 1
-            else:
-                not_saved_count += 1
-
-        self.group_summary_label.set_text(f"Selected {len(students)} of {MAX_SELECTED_STUDENTS}")
-        self.progress_summary_label.set_text(f"Unchecked {len(unchecked_students)} of {total_students}")
-        self.card_summary_label.set_text(
-            f"Saved: {saved_count} | Draft: {draft_count} | Not saved: {not_saved_count}"
+        selected_count = len(students)
+        remaining_count = len(remaining_students)
+        unsaved_selected_count = sum(
+            1 for student in students if self._draft_key(student.student_id) not in self.saved_keys
         )
-        self.status_label.set_text(self.status_message)
+
+        self.selected_metric_label.set_text(str(selected_count))
+        self.remaining_metric_label.set_text(f"{remaining_count} of {visible_count} visible")
+        self.unsaved_metric_label.set_text(str(unsaved_selected_count))
+
+        if self.selected_metric_tooltip is not None:
+            self.selected_metric_tooltip.set_text(f"{selected_count} students selected")
+        if self.remaining_metric_tooltip is not None:
+            self.remaining_metric_tooltip.set_text(
+                f"{remaining_count} students still need grading from {visible_count} visible"
+            )
+        if self.unsaved_metric_tooltip is not None:
+            self.unsaved_metric_tooltip.set_text(
+                f"{unsaved_selected_count} selected students have changes not saved"
+            )
         self._refresh_filter_toggle_button()
 
         if self.save_all_button is not None:
@@ -1123,7 +1132,7 @@ class NACheckDashboard:
 
         trimmed = deduped[:MAX_SELECTED_STUDENTS]
         if len(deduped) > MAX_SELECTED_STUDENTS:
-            ui.notify(f"You can select up to {MAX_SELECTED_STUDENTS} students.", type="warning")
+            self._notify_status(f"You can select up to {MAX_SELECTED_STUDENTS} students", type="warning")
 
         self.selected_student_ids = trimmed
         self._syncing = True
@@ -1169,6 +1178,9 @@ class NACheckDashboard:
             except ValueError:
                 continue
         return None
+
+    def _notify_status(self, message: str, *, type: str = "info", timeout: int = 2500) -> None:
+        ui.notify(message, type=type, position="top-right", timeout=timeout)
 
     def _set_enabled(self, control: ui.element, enabled: bool) -> None:
         if enabled:
