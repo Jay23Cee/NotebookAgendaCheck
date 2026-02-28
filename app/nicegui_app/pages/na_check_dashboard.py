@@ -24,8 +24,9 @@ from app.nicegui_app.na_check.storage import CsvStore
 from app.scoring import SCORE_MODEL_INTERNAL20_GRADEBOOK10_V1
 
 PREFERENCES_KEY = "na_check_dashboard"
-BATCH_OPTIONS = ("1", "2", "3", "4")
-DEFAULT_BATCH = "3"
+MAX_SELECTED_STUDENTS = 3
+SAVED_OPTION_PREFIX = "__SAVED__|"
+TODO_OPTION_PREFIX = "__TODO__|"
 TEACHER_LABEL = "TEACHER"
 
 
@@ -46,6 +47,7 @@ class StudentCardHandles:
     student: RosterStudent
     root: ui.card
     status_chip: ui.chip
+    next_ungraded_button: ui.button
     lock_hint: ui.label
     agenda_present: ui.toggle
     agenda_entry: ui.toggle
@@ -90,18 +92,20 @@ class NACheckDashboard:
         self.save_transactions: list[SaveTransaction] = []
 
         self._syncing = False
-        self.status_message = "Select grade, period, and table group to start grading."
+        self.status_message = "Select grade, period, and students to start grading."
 
         self.grade_select: ui.select | None = None
         self.period_select: ui.select | None = None
-        self.table_group_select: ui.select | None = None
+        self.student_select: ui.select | None = None
         self.date_input: ui.input | None = None
-        self.batch_size_select: ui.select | None = None
         self.sticky_choices_switch: ui.switch | None = None
+
+        self.show_not_checked_only = False
+        self.selected_student_ids: list[str] = []
 
         self.save_all_button: ui.button | None = None
         self.undo_button: ui.button | None = None
-        self.skip_button: ui.button | None = None
+        self.filter_toggle_button: ui.button | None = None
 
         self.group_summary_label: ui.label | None = None
         self.progress_summary_label: ui.label | None = None
@@ -143,12 +147,60 @@ class NACheckDashboard:
                 on_change=self._on_period_change,
             ).classes("na2-control")
 
-            self.table_group_select = ui.select(
+            self.student_select = ui.select(
                 options={},
-                value=None,
-                label="Table Group",
-                on_change=self._on_table_group_change,
+                value=[],
+                label="Students",
+                on_change=self._on_student_selection_change,
+                with_input=True,
+                multiple=True,
+                clearable=True,
             ).classes("na2-control")
+            self.student_select.props("use-chips input-debounce=0")
+            self.student_select.add_slot(
+                "option",
+                """
+                <q-item
+                  v-bind="props.itemProps"
+                  :class="[
+                    props.opt.label.startsWith('__SAVED__|') ? 'na2-student-option-row-saved' : 'na2-student-option-row-not-checked',
+                    props.selected ? 'na2-student-option-row-selected' : ''
+                  ]"
+                >
+                  <q-item-section avatar>
+                    <q-icon
+                      :name="props.opt.label.startsWith('__SAVED__|') ? 'check_box' : 'check_box_outline_blank'"
+                      :color="props.opt.label.startsWith('__SAVED__|') ? 'positive' : 'negative'"
+                    />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>
+                      {{ props.opt.label.split('|').slice(1).join('|') }}
+                    </q-item-label>
+                  </q-item-section>
+                </q-item>
+                """,
+            )
+            self.student_select.add_slot(
+                "selected-item",
+                """
+                <q-chip
+                  dense
+                  class="na2-student-chip"
+                  :class="[
+                    props.opt.label.startsWith('__SAVED__|') ? 'na2-student-chip-saved' : 'na2-student-chip-not-checked',
+                    'na2-student-chip-selected'
+                  ]"
+                >
+                  <q-icon
+                    size="16px"
+                    class="q-mr-xs"
+                    :name="props.opt.label.startsWith('__SAVED__|') ? 'check_box' : 'check_box_outline_blank'"
+                  />
+                  {{ props.opt.label.split('|').slice(1).join('|') }}
+                </q-chip>
+                """,
+            )
 
             today = datetime.now().strftime("%m/%d/%Y")
             self.date_input = ui.input(label="Date", value=today).props("readonly").classes("na2-control")
@@ -157,13 +209,6 @@ class NACheckDashboard:
             with self.date_input.add_slot("append"):
                 ui.icon("calendar_month").classes("cursor-pointer").on("click", date_menu.open)
             self.date_input.on("change", self._on_date_change)
-
-            self.batch_size_select = ui.select(
-                options={value: value for value in BATCH_OPTIONS},
-                value=DEFAULT_BATCH,
-                label="Batch Size",
-                on_change=self._on_batch_size_change,
-            ).classes("na2-control")
 
             self.sticky_choices_switch = ui.switch(
                 "Sticky last choices",
@@ -174,26 +219,26 @@ class NACheckDashboard:
     def _build_global_actions(self) -> None:
         with ui.row().classes("na2-actions-row"):
             self.save_all_button = ui.button(
-                "Save All + Next Group",
-                on_click=self._save_all_and_next,
+                "Save Selected",
+                on_click=self._save_selected_students,
             ).classes("na2-btn na2-btn-primary")
             self.undo_button = ui.button(
                 "Undo Last Save",
                 on_click=self._undo_last_saved,
             ).classes("na2-btn na2-btn-secondary")
-            self.skip_button = ui.button(
-                "Skip Group",
-                on_click=self._skip_group,
-            ).classes("na2-btn na2-btn-secondary")
+            self.filter_toggle_button = ui.button(
+                "Not Checked Only",
+                on_click=self._toggle_not_checked_filter,
+            ).classes("na2-btn na2-btn-secondary na2-filter-toggle-btn")
 
     def _build_summary_strip(self) -> None:
         with ui.row().classes("na2-summary-strip"):
             with ui.column().classes("na2-summary-chip"):
-                ui.label("Group").classes("na2-summary-title")
-                self.group_summary_label = ui.label("Group 0 of 0").classes("na2-summary-value")
+                ui.label("Selected").classes("na2-summary-title")
+                self.group_summary_label = ui.label(f"Selected 0 of {MAX_SELECTED_STUDENTS}").classes("na2-summary-value")
             with ui.column().classes("na2-summary-chip"):
-                ui.label("Progress").classes("na2-summary-title")
-                self.progress_summary_label = ui.label("Students 0-0 of 0").classes("na2-summary-value")
+                ui.label("Unchecked").classes("na2-summary-title")
+                self.progress_summary_label = ui.label("Unchecked 0 of 0").classes("na2-summary-value")
             with ui.column().classes("na2-summary-chip"):
                 ui.label("Cards").classes("na2-summary-title")
                 self.card_summary_label = ui.label("Saved: 0 | Draft: 0 | Not saved: 0").classes("na2-summary-value")
@@ -203,7 +248,7 @@ class NACheckDashboard:
 
     def _initialize_selectors(self) -> None:
         assert self.grade_select is not None
-        assert self.batch_size_select is not None
+        assert self.student_select is not None
         assert self.date_input is not None
 
         self._syncing = True
@@ -212,15 +257,15 @@ class NACheckDashboard:
             self.grade_select.value = next(iter(self.grade_select.options), None)
             self.grade_select.update()
 
-            self.batch_size_select.options = {value: value for value in BATCH_OPTIONS}
-            self.batch_size_select.value = DEFAULT_BATCH
-            self.batch_size_select.update()
+            self.student_select.value = []
+            self.student_select.update()
 
             self.date_input.value = datetime.now().strftime("%m/%d/%Y")
             self.date_input.update()
 
             self._refresh_period_options()
-            self._refresh_group_options()
+            self._reload_saved_keys_for_date()
+            self._refresh_student_options(reset_selection=True)
             self._apply_preferences_if_enabled()
         finally:
             self._syncing = False
@@ -229,9 +274,8 @@ class NACheckDashboard:
         assert self.sticky_choices_switch is not None
         assert self.grade_select is not None
         assert self.period_select is not None
-        assert self.table_group_select is not None
+        assert self.student_select is not None
         assert self.date_input is not None
-        assert self.batch_size_select is not None
 
         prefs = self._load_preferences()
         sticky_enabled = bool(prefs.get("sticky_enabled", False))
@@ -240,11 +284,6 @@ class NACheckDashboard:
 
         if not sticky_enabled:
             return
-
-        saved_batch = str(prefs.get("batch_size", DEFAULT_BATCH))
-        if saved_batch in BATCH_OPTIONS:
-            self.batch_size_select.value = saved_batch
-            self.batch_size_select.update()
 
         saved_grade = str(prefs.get("grade", "")).strip()
         if saved_grade and saved_grade in self.grade_select.options:
@@ -258,24 +297,22 @@ class NACheckDashboard:
             self.period_select.value = saved_period
             self.period_select.update()
 
-        self._refresh_group_options()
-
-        saved_group = str(prefs.get("table_group", "")).strip()
-        if saved_group and saved_group in self.table_group_select.options:
-            self.table_group_select.value = saved_group
-            self.table_group_select.update()
+        self._reload_saved_keys_for_date()
+        self._refresh_student_options(reset_selection=True)
 
         saved_date = self._normalized_check_date(str(prefs.get("check_date", "")))
         if saved_date:
             self.date_input.value = saved_date
             self.date_input.update()
+            self._reload_saved_keys_for_date()
+            self._refresh_student_options(reset_selection=True)
 
     def _on_grade_change(self, _event: ValueChangeEventArguments) -> None:
         if self._syncing:
             return
         self._refresh_period_options()
-        self._refresh_group_options()
         self._reload_saved_keys_for_date()
+        self._refresh_student_options(reset_selection=True)
         self._render_batch_cards()
         self._refresh_summary_strip()
         self._persist_preferences()
@@ -283,15 +320,16 @@ class NACheckDashboard:
     def _on_period_change(self, _event: ValueChangeEventArguments) -> None:
         if self._syncing:
             return
-        self._refresh_group_options()
         self._reload_saved_keys_for_date()
+        self._refresh_student_options(reset_selection=True)
         self._render_batch_cards()
         self._refresh_summary_strip()
         self._persist_preferences()
 
-    def _on_table_group_change(self, _event: ValueChangeEventArguments) -> None:
+    def _on_student_selection_change(self, _event: ValueChangeEventArguments) -> None:
         if self._syncing:
             return
+        self._apply_selected_student_values(self.student_select.value if self.student_select else [])
         self._render_batch_cards()
         self._refresh_summary_strip()
         self._persist_preferences()
@@ -310,14 +348,7 @@ class NACheckDashboard:
         self.date_input.value = normalized
         self.date_input.update()
         self._reload_saved_keys_for_date()
-        self._render_batch_cards()
-        self._refresh_summary_strip()
-        self._persist_preferences()
-
-    def _on_batch_size_change(self, _event: ValueChangeEventArguments) -> None:
-        if self._syncing:
-            return
-        self._refresh_group_options()
+        self._refresh_student_options(reset_selection=True)
         self._render_batch_cards()
         self._refresh_summary_strip()
         self._persist_preferences()
@@ -348,10 +379,10 @@ class NACheckDashboard:
             self.period_select.value = next(iter(options), None)
         self.period_select.update()
 
-    def _refresh_group_options(self) -> None:
+    def _refresh_student_options(self, *, reset_selection: bool, notify_pruned: bool = False) -> None:
         assert self.grade_select is not None
         assert self.period_select is not None
-        assert self.table_group_select is not None
+        assert self.student_select is not None
 
         grade = str(self.grade_select.value) if self.grade_select.value is not None else ""
         period = str(self.period_select.value) if self.period_select.value is not None else ""
@@ -359,48 +390,49 @@ class NACheckDashboard:
             student for student in self.roster if student.grade == grade and student.period == period
         ]
 
-        batch_size = self._batch_size_value()
-        group_options: dict[str, str] = {}
-        for group_index, start in enumerate(range(0, len(self.filtered_students), batch_size), start=1):
-            group = self.filtered_students[start : start + batch_size]
-            end = start + len(group)
-            preview = ", ".join(student.student_name.split(",")[0] for student in group)
-            group_options[str(group_index)] = f"Group {group_index} ({start + 1}-{end}) - {preview}"
+        available_students = self._available_students_for_picker()
+        options = {student.student_id: self._student_option_label(student) for student in available_students}
 
-        if not group_options:
-            group_options = {"1": "Group 1 (empty)"}
+        previous_selection = list(self.selected_student_ids)
+        new_selection: list[str]
+        if reset_selection:
+            new_selection = []
+        else:
+            new_selection = [student_id for student_id in previous_selection if student_id in options]
 
-        self.table_group_select.options = group_options
-        if self.table_group_select.value not in group_options:
-            self.table_group_select.value = next(iter(group_options), None)
-        self.table_group_select.update()
+        self.student_select.options = options
+        self.student_select.update()
+        self._apply_selected_student_values(new_selection)
+
+        if notify_pruned and len(new_selection) < len(previous_selection):
+            removed = len(previous_selection) - len(new_selection)
+            ui.notify(f"Hidden {removed} saved student(s) while Not Checked filter is on.", type="warning")
 
     def _render_batch_cards(self) -> None:
         if self.batch_grid is None:
             return
 
-        batch_size = self._batch_size_value()
-        students = self._current_group_students()
+        students = self._current_selected_students()
 
         self.batch_grid.clear()
-        self.batch_grid.classes(replace=f"na2-batch-grid na2-cols-{batch_size}")
+        cols = max(1, min(len(students), MAX_SELECTED_STUDENTS))
+        self.batch_grid.classes(replace=f"na2-batch-grid na2-cols-{cols}")
         self.card_handles_by_student_id = {}
 
         with self.batch_grid:
-            for slot_index in range(batch_size):
-                student = students[slot_index] if slot_index < len(students) else None
-                if student is None:
-                    self._build_empty_slot_card(slot_index)
-                else:
+            if not students:
+                self._build_empty_selection_card()
+            else:
+                for student in students:
                     self._build_student_card(student)
 
         for student in students:
             self._refresh_card(student.student_id)
 
-    def _build_empty_slot_card(self, slot_index: int) -> None:
+    def _build_empty_selection_card(self) -> None:
         with ui.card().classes("na2-student-card na2-empty-card"):
-            ui.label(f"Slot {slot_index + 1}").classes("na2-empty-title")
-            ui.label("No student in this group slot.").classes("na2-empty-subtitle")
+            ui.label("No students selected").classes("na2-empty-title")
+            ui.label(f"Select up to {MAX_SELECTED_STUDENTS} students to start grading.").classes("na2-empty-subtitle")
 
     def _build_student_card(self, student: RosterStudent) -> None:
         default_form = self._ensure_draft(student.student_id)
@@ -411,7 +443,12 @@ class NACheckDashboard:
                 with ui.column().classes("na2-card-title-wrap"):
                     ui.label(student.student_name).classes("na2-card-name")
                     ui.label(student.student_id).classes("na2-card-id")
-                status_chip = ui.chip("Not saved", selectable=False).classes("na2-card-status na2-status-not-saved")
+                with ui.row().classes("na2-card-header-actions"):
+                    status_chip = ui.chip("Not saved", selectable=False).classes("na2-card-status na2-status-not-saved")
+                    next_ungraded_button = ui.button(
+                        "Next Ungraded",
+                        on_click=lambda sid=student.student_id: self._select_next_not_checked(sid),
+                    ).props("dense no-caps").classes("na2-btn na2-btn-secondary na2-filter-toggle-btn")
 
             lock_hint = ui.label("").classes("na2-lock-hint")
 
@@ -591,6 +628,7 @@ class NACheckDashboard:
             student=student,
             root=root,
             status_chip=status_chip,
+            next_ungraded_button=next_ungraded_button,
             lock_hint=lock_hint,
             agenda_present=agenda_present,
             agenda_entry=agenda_entry,
@@ -674,6 +712,8 @@ class NACheckDashboard:
             card.root.classes(replace=card_class)
             card.status_chip.set_text(status_text)
             card.status_chip.classes(replace=f"na2-card-status {status_class}")
+            card.next_ungraded_button.set_text("Next Ungraded")
+            card.next_ungraded_button.classes(replace="na2-btn na2-btn-secondary na2-filter-toggle-btn")
 
             card.agenda_present.value = "yes" if draft.agenda_present else "no"
             card.agenda_present.update()
@@ -751,20 +791,18 @@ class NACheckDashboard:
         student = self._find_student(student_id)
         if student is None:
             return
-        self._save_students([student], advance_next_group=False)
+        self._save_students([student])
 
-    def _save_all_and_next(self) -> None:
-        students = self._current_group_students()
-        self._save_students(students, advance_next_group=True)
+    def _save_selected_students(self) -> None:
+        students = self._current_selected_students()
+        self._save_students(students)
 
-    def _save_students(self, students: list[RosterStudent], *, advance_next_group: bool) -> None:
+    def _save_students(self, students: list[RosterStudent]) -> None:
         if not students:
-            message = "No students in this group."
+            message = "No selected students."
             self.status_message = message
             self._refresh_summary_strip()
             ui.notify(message, type="warning")
-            if advance_next_group:
-                self._move_to_next_group()
             return
 
         check_date = self._normalized_check_date(self.date_input.value if self.date_input else None)
@@ -859,11 +897,10 @@ class NACheckDashboard:
             self.status_message = message
             ui.notify(message, type="warning")
 
+        self._refresh_student_options(reset_selection=False, notify_pruned=self.show_not_checked_only)
         self._render_batch_cards()
         self._refresh_summary_strip()
-
-        if advance_next_group:
-            self._move_to_next_group()
+        self._persist_preferences()
 
     def _undo_last_saved(self) -> None:
         if not self.save_transactions:
@@ -901,43 +938,83 @@ class NACheckDashboard:
             ui.notify(message, type="positive")
 
         self.status_message = message
-        self._render_batch_cards()
-        self._refresh_summary_strip()
-
-    def _skip_group(self) -> None:
-        self._move_to_next_group()
-
-    def _move_to_next_group(self) -> None:
-        assert self.table_group_select is not None
-
-        options = list(self.table_group_select.options.keys())
-        if not options:
-            return
-
-        try:
-            current_value = str(self.table_group_select.value)
-            current_index = options.index(current_value)
-        except ValueError:
-            current_index = 0
-
-        next_index = current_index + 1
-        if next_index >= len(options):
-            message = "Reached the final table group."
-            self.status_message = message
-            self._refresh_summary_strip()
-            ui.notify(message, type="warning")
-            return
-
-        self._syncing = True
-        try:
-            self.table_group_select.value = options[next_index]
-            self.table_group_select.update()
-        finally:
-            self._syncing = False
-
+        self._refresh_student_options(reset_selection=False, notify_pruned=self.show_not_checked_only)
         self._render_batch_cards()
         self._refresh_summary_strip()
         self._persist_preferences()
+
+    def _toggle_not_checked_filter(self) -> None:
+        self.show_not_checked_only = not self.show_not_checked_only
+        if self.show_not_checked_only:
+            self.status_message = "Showing only not-checked students."
+        else:
+            self.status_message = "Showing all students."
+        self._refresh_student_options(reset_selection=False, notify_pruned=True)
+        self._render_batch_cards()
+        self._refresh_summary_strip()
+        self._persist_preferences()
+
+    def _select_next_not_checked(self, clicked_student_id: str) -> None:
+        index_by_student_id = {student.student_id: index for index, student in enumerate(self.filtered_students)}
+        unchecked_ids = [
+            student.student_id
+            for student in self.filtered_students
+            if self._draft_key(student.student_id) not in self.saved_keys
+        ]
+        if not unchecked_ids:
+            self.status_message = "All students checked for this date."
+            self._refresh_summary_strip()
+            ui.notify(self.status_message, type="positive")
+            self._persist_preferences()
+            return
+
+        if clicked_student_id not in self.selected_student_ids or clicked_student_id not in index_by_student_id:
+            self.status_message = "Selected card is no longer available."
+            self._refresh_summary_strip()
+            ui.notify(self.status_message, type="warning")
+            self._persist_preferences()
+            return
+
+        anchor = index_by_student_id[clicked_student_id]
+        blocked_ids = set(self.selected_student_ids)
+        blocked_ids.discard(clicked_student_id)
+
+        replacement_id = next(
+            (
+                student_id
+                for student_id in unchecked_ids
+                if index_by_student_id[student_id] > anchor and student_id not in blocked_ids
+            ),
+            None,
+        )
+
+        if replacement_id is None:
+            self.status_message = "No later unchecked student available."
+            self._refresh_summary_strip()
+            ui.notify(self.status_message, type="warning")
+            self._persist_preferences()
+            return
+
+        updated_ids = list(self.selected_student_ids)
+        clicked_index = updated_ids.index(clicked_student_id)
+        updated_ids[clicked_index] = replacement_id
+        self._apply_selected_student_values(updated_ids)
+        self.status_message = "Moved to next unchecked student."
+        self._render_batch_cards()
+        self._refresh_summary_strip()
+        self._persist_preferences()
+
+    def _refresh_filter_toggle_button(self) -> None:
+        if self.filter_toggle_button is None:
+            return
+        self.filter_toggle_button.set_text("Show All" if self.show_not_checked_only else "Not Checked Only")
+        self.filter_toggle_button.classes(
+            replace=(
+                "na2-btn na2-btn-secondary na2-filter-toggle-btn na2-filter-toggle-active"
+                if self.show_not_checked_only
+                else "na2-btn na2-btn-secondary na2-filter-toggle-btn"
+            )
+        )
 
     def _refresh_summary_strip(self) -> None:
         if not all(
@@ -946,24 +1023,15 @@ class NACheckDashboard:
                 self.progress_summary_label,
                 self.card_summary_label,
                 self.status_label,
-                self.table_group_select,
             ]
         ):
             return
 
         total_students = len(self.filtered_students)
-        batch_size = self._batch_size_value()
-        group_count = max(1, (total_students + batch_size - 1) // batch_size)
-        group_value = str(self.table_group_select.value or "1")
-        try:
-            group_index = max(1, int(group_value))
-        except ValueError:
-            group_index = 1
-
-        start = (group_index - 1) * batch_size + 1 if total_students > 0 else 0
-        end = min(group_index * batch_size, total_students) if total_students > 0 else 0
-
-        students = self._current_group_students()
+        unchecked_students = [
+            student for student in self.filtered_students if self._draft_key(student.student_id) not in self.saved_keys
+        ]
+        students = self._current_selected_students()
         saved_count = 0
         draft_count = 0
         not_saved_count = 0
@@ -978,37 +1046,24 @@ class NACheckDashboard:
             else:
                 not_saved_count += 1
 
-        self.group_summary_label.set_text(f"Group {group_index} of {group_count}")
-        self.progress_summary_label.set_text(f"Students {start}-{end} of {total_students}")
+        self.group_summary_label.set_text(f"Selected {len(students)} of {MAX_SELECTED_STUDENTS}")
+        self.progress_summary_label.set_text(f"Unchecked {len(unchecked_students)} of {total_students}")
         self.card_summary_label.set_text(
             f"Saved: {saved_count} | Draft: {draft_count} | Not saved: {not_saved_count}"
         )
         self.status_label.set_text(self.status_message)
+        self._refresh_filter_toggle_button()
 
         if self.save_all_button is not None:
             self._set_enabled(self.save_all_button, bool(students))
+        if self.filter_toggle_button is not None:
+            self._set_enabled(self.filter_toggle_button, bool(self.filtered_students))
         if self.undo_button is not None:
             self._set_enabled(self.undo_button, bool(self.save_transactions))
 
-    def _current_group_students(self) -> list[RosterStudent]:
-        assert self.table_group_select is not None
-
-        batch_size = self._batch_size_value()
-        try:
-            group_index = int(str(self.table_group_select.value or "1"))
-        except ValueError:
-            group_index = 1
-
-        start = max(group_index - 1, 0) * batch_size
-        return self.filtered_students[start : start + batch_size]
-
-    def _batch_size_value(self) -> int:
-        if self.batch_size_select is None or self.batch_size_select.value is None:
-            return int(DEFAULT_BATCH)
-        raw = str(self.batch_size_select.value).strip()
-        if raw in BATCH_OPTIONS:
-            return int(raw)
-        return int(DEFAULT_BATCH)
+    def _current_selected_students(self) -> list[RosterStudent]:
+        by_id = {student.student_id: student for student in self.filtered_students}
+        return [by_id[student_id] for student_id in self.selected_student_ids if student_id in by_id]
 
     def _ensure_draft(self, student_id: str) -> CheckFormState:
         key = self._draft_key(student_id)
@@ -1038,6 +1093,44 @@ class NACheckDashboard:
         for record in self.store.list_saved_refs():
             if record.check_date == check_date:
                 self.saved_keys.add((record.student_id, record.check_date))
+
+    def _available_students_for_picker(self) -> list[RosterStudent]:
+        if not self.show_not_checked_only:
+            return list(self.filtered_students)
+        return [student for student in self.filtered_students if self._draft_key(student.student_id) not in self.saved_keys]
+
+    def _student_option_label(self, student: RosterStudent) -> str:
+        prefix = SAVED_OPTION_PREFIX if self._draft_key(student.student_id) in self.saved_keys else TODO_OPTION_PREFIX
+        return f"{prefix}{student.student_name} ({student.student_id})"
+
+    def _apply_selected_student_values(self, raw_values: object) -> None:
+        assert self.student_select is not None
+
+        available_ids = list(self.student_select.options.keys())
+        incoming: list[str]
+        if isinstance(raw_values, list):
+            incoming = [str(value) for value in raw_values]
+        elif raw_values is None:
+            incoming = []
+        else:
+            incoming = [str(raw_values)]
+
+        deduped: list[str] = []
+        for student_id in incoming:
+            if student_id in available_ids and student_id not in deduped:
+                deduped.append(student_id)
+
+        trimmed = deduped[:MAX_SELECTED_STUDENTS]
+        if len(deduped) > MAX_SELECTED_STUDENTS:
+            ui.notify(f"You can select up to {MAX_SELECTED_STUDENTS} students.", type="warning")
+
+        self.selected_student_ids = trimmed
+        self._syncing = True
+        try:
+            self.student_select.value = list(trimmed)
+            self.student_select.update()
+        finally:
+            self._syncing = False
 
     def _tags_summary_text(self, selected_tags: list[str]) -> str:
         if not selected_tags:
@@ -1107,9 +1200,8 @@ class NACheckDashboard:
                 self.sticky_choices_switch,
                 self.grade_select,
                 self.period_select,
-                self.table_group_select,
+                self.student_select,
                 self.date_input,
-                self.batch_size_select,
             ]
         ):
             return
@@ -1127,9 +1219,7 @@ class NACheckDashboard:
             "sticky_enabled": bool(self.sticky_choices_switch.value),
             "grade": str(self.grade_select.value or ""),
             "period": str(self.period_select.value or ""),
-            "table_group": str(self.table_group_select.value or ""),
             "check_date": str(self.date_input.value or ""),
-            "batch_size": str(self.batch_size_select.value or DEFAULT_BATCH),
         }
 
         self.preferences_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1143,9 +1233,6 @@ class NACheckDashboard:
         if not event.action.keydown or event.action.repeat:
             return
         key = event.key.name.lower()
-        if key == "enter" and event.modifiers.ctrl:
-            self._save_all_and_next()
-            return
         if key == "z" and event.modifiers.ctrl:
             self._undo_last_saved()
 

@@ -16,7 +16,7 @@
 .na2-topbar {
   width: 100%;
   display: grid;
-  grid-template-columns: minmax(110px, 140px) minmax(110px, 140px) minmax(220px, 1.2fr) minmax(130px, 150px) minmax(110px, 130px) auto;
+  grid-template-columns: minmax(110px, 140px) minmax(110px, 140px) minmax(280px, 1.4fr) minmax(130px, 150px) auto;
   gap: 8px;
   align-items: center;
   background: #ffffff;
@@ -166,6 +166,11 @@
   align-items: flex-start;
 }
 
+.na2-card-header-actions {
+  gap: 6px;
+  align-items: center;
+}
+
 .na2-card-title-wrap {
   gap: 2px;
 }
@@ -188,9 +193,9 @@
 }
 
 .na2-status-not-saved {
-  background: #fff2df;
-  border: 1px solid #ddb381;
-  color: #8a5822;
+  background: #ffe2e2;
+  border: 1px solid #efb6b6;
+  color: #8c1d1d;
 }
 
 .na2-status-draft {
@@ -203,6 +208,51 @@
   background: #daf7e7;
   border: 1px solid #92d2af;
   color: #145a32;
+}
+
+.na2-filter-toggle-btn {
+  padding: 0 10px;
+  min-height: 28px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.na2-filter-toggle-active {
+  background: #fef3c7;
+  border-color: #f3d188;
+  color: #8a5800;
+}
+
+.na2-student-option-row-saved {
+  background: #ecfbf2;
+}
+
+.na2-student-option-row-not-checked {
+  background: #ffeded;
+}
+
+.na2-student-option-row-selected {
+  border-left: 3px solid #d97904;
+  box-shadow: inset 0 0 0 1px rgba(217, 121, 4, 0.45);
+}
+
+.na2-student-chip {
+  font-weight: 700;
+}
+
+.na2-student-chip-saved {
+  background: #daf7e7;
+  color: #145a32;
+}
+
+.na2-student-chip-not-checked {
+  background: #ffe2e2;
+  color: #8c1d1d;
+}
+
+.na2-student-chip-selected {
+  border: 1px solid #dda15e;
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.28), 0 0 10px rgba(245, 158, 11, 0.22);
 }
 
 .na2-lock-hint {
