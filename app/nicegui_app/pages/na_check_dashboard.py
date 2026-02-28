@@ -170,7 +170,7 @@ class NACheckDashboard:
                   <q-item-section avatar>
                     <q-icon
                       :name="props.opt.label.startsWith('__SAVED__|') ? 'check_box' : 'check_box_outline_blank'"
-                      :color="props.opt.label.startsWith('__SAVED__|') ? 'positive' : 'negative'"
+                      :color="props.opt.label.startsWith('__SAVED__|') ? 'positive' : (props.selected ? 'warning' : 'negative')"
                     />
                   </q-item-section>
                   <q-item-section>
@@ -196,6 +196,7 @@ class NACheckDashboard:
                     size="16px"
                     class="q-mr-xs"
                     :name="props.opt.label.startsWith('__SAVED__|') ? 'check_box' : 'check_box_outline_blank'"
+                    :color="props.opt.label.startsWith('__SAVED__|') ? 'positive' : 'warning'"
                   />
                   {{ props.opt.label.split('|').slice(1).join('|') }}
                 </q-chip>

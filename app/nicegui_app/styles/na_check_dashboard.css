@@ -232,7 +232,20 @@
 }
 
 .na2-student-option-row-selected {
-  border-left: 3px solid #d97904;
+  border-left: 3px solid transparent;
+}
+
+.na2-student-option-row-saved.na2-student-option-row-selected {
+  background: #e2f8ec;
+  color: #145a32;
+  border-left-color: #2f855a;
+  box-shadow: inset 0 0 0 1px rgba(47, 133, 90, 0.32);
+}
+
+.na2-student-option-row-not-checked.na2-student-option-row-selected {
+  background: #fff3df;
+  color: #7a4500;
+  border-left-color: #d97904;
   box-shadow: inset 0 0 0 1px rgba(217, 121, 4, 0.45);
 }
 
@@ -250,7 +263,16 @@
   color: #8c1d1d;
 }
 
-.na2-student-chip-selected {
+.na2-student-chip-saved.na2-student-chip-selected {
+  background: #daf7e7;
+  color: #145a32;
+  border: 1px solid #92d2af;
+  box-shadow: 0 0 0 1px rgba(20, 90, 50, 0.2), 0 0 10px rgba(63, 135, 89, 0.18);
+}
+
+.na2-student-chip-not-checked.na2-student-chip-selected {
+  background: #ffe8c2;
+  color: #7a4500;
   border: 1px solid #dda15e;
   box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.28), 0 0 10px rgba(245, 158, 11, 0.22);
 }
