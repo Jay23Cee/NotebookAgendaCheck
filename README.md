@@ -5,12 +5,43 @@ Local tool for **Notebook + Agenda checks** by **grade**.
 ## Safety
 
 - Student roster is read automatically from bundled package data at `src/notebookagendacheck/data/mock_students.xlsx`.
+- You can upload a custom roster CSV from the dashboard (`Upload Roster CSV`).
+- Uploaded roster CSV is validated strictly for grades `6`/`7`/`8` and duplicate `StudentID` values.
+- Uploaded roster is saved locally to `records/roster/current_roster.csv` and reused on next app launch.
 - Dashboard roster must include a `Subject` column with `Math`/`Science` values.
 - The app **does not push or sync data to Google**.
 - The app **does not write any Excel files into a save folder**.
 - Check results are auto-saved locally to `records/notebook_agenda_checks.csv`.
 - Runtime errors are logged to `records/na_check_error_log.csv`.
 - Corrupted CSV files are quarantined under `records/quarantine/` before clean-file recreation.
+
+## Upload Roster CSV
+
+Use the dashboard `Upload Roster CSV` control to replace the active roster.
+
+Required columns:
+
+- `StudentID`
+- `StudentName`
+- `Grade` (allowed values: `6`, `7`, `8`)
+- `Subject` (must map to `Math` or `Science`)
+
+Optional columns:
+
+- `Period` (defaults to `Unknown` when omitted)
+
+Sample header:
+
+```csv
+StudentID,StudentName,Grade,Subject,Period
+```
+
+Import rules:
+
+- Upload format is `.csv` only.
+- Duplicate `StudentID` values are rejected.
+- Validation is all-or-nothing: any invalid row blocks the full import.
+- Existing score history in `records/notebook_agenda_checks.csv` is preserved.
 
 ## Rubric
 

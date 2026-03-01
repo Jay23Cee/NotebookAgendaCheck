@@ -3,22 +3,24 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
+import os
 from pathlib import Path
 import uuid
 
 from nicegui import ui
-from nicegui.events import KeyEventArguments, ValueChangeEventArguments
+from nicegui.events import KeyEventArguments, UploadEventArguments, ValueChangeEventArguments
 
 from notebookagendacheck.constants import (
     DEFAULT_NA_CHECK_ERROR_LOG_FILE,
     DEFAULT_NA_CHECK_QUARANTINE_DIR,
     DEFAULT_OUTPUT_FILE,
+    DEFAULT_RUNTIME_ROSTER_FILE,
     DEFAULT_STUDENTS_FILE,
     DEFAULT_UI_PREFERENCES_FILE,
 )
 from notebookagendacheck.nicegui_app.na_check.models import CheckFormState, RosterStudent
 from notebookagendacheck.nicegui_app.na_check.reliability import LogSeverity, NotificationSuppressor, ResilientErrorLogger
-from notebookagendacheck.nicegui_app.na_check.roster import load_roster
+from notebookagendacheck.nicegui_app.na_check.roster import RosterValidationError, load_roster
 from notebookagendacheck.nicegui_app.na_check.scoring import (
     COMMENT_PRESETS,
     TAG_DEFINITIONS,
@@ -121,7 +123,8 @@ class StudentCardHandles:
 
 class NACheckDashboard:
     def __init__(self) -> None:
-        self.students_file = DEFAULT_STUDENTS_FILE
+        self.runtime_roster_file = DEFAULT_RUNTIME_ROSTER_FILE
+        self.students_file = self._resolve_roster_file()
         self.output_file = DEFAULT_OUTPUT_FILE
         self.preferences_file = DEFAULT_UI_PREFERENCES_FILE
 
@@ -172,6 +175,7 @@ class NACheckDashboard:
         self.student_select: ui.select | None = None
         self.date_input: ui.input | None = None
         self.sticky_choices_switch: ui.switch | None = None
+        self.roster_upload: ui.upload | None = None
         self._missing_subject_warning_grade: str | None = None
 
         self.selected_student_ids: list[str] = []
@@ -206,6 +210,9 @@ class NACheckDashboard:
         self._refresh_summary_strip()
         if self._startup_error_message:
             self._notify_status(self._startup_error_message, type="negative", timeout=4500)
+
+    def _resolve_roster_file(self) -> Path:
+        return self.runtime_roster_file if self.runtime_roster_file.exists() else DEFAULT_STUDENTS_FILE
 
     def _build_top_bar(self) -> None:
         with ui.row().classes("na2-topbar"):
@@ -290,6 +297,16 @@ class NACheckDashboard:
                 value=False,
                 on_change=self._on_sticky_toggle,
             ).classes("na2-sticky-toggle")
+
+            self._build_roster_upload_control()
+
+    def _build_roster_upload_control(self) -> None:
+        self.roster_upload = ui.upload(
+            label="Upload Roster CSV",
+            on_upload=self._on_roster_upload,
+            auto_upload=True,
+        ).classes("na2-control")
+        self.roster_upload.props("accept=.csv max-files=1")
 
     def _build_date_control(self, *, default_date: str | None = None) -> None:
         value = default_date or datetime.now().strftime("%m/%d/%Y")
@@ -459,6 +476,121 @@ class NACheckDashboard:
         if self._syncing:
             return
         self._persist_preferences()
+
+    async def _on_roster_upload(self, event: UploadEventArguments) -> None:
+        file_name = str(event.file.name)
+        payload = await event.file.read()
+        self._import_roster_csv_bytes(file_name=file_name, payload=payload)
+
+    def _import_roster_csv_bytes(self, *, file_name: str, payload: bytes) -> bool:
+        if not file_name.lower().endswith(".csv"):
+            message = "Roster upload failed: only .csv files are supported"
+            self.status_message = message
+            self._notify_status(message, type="warning")
+            return False
+
+        if self._has_unsaved_selected_students():
+            message = "Save or clear selected unsaved student cards before uploading a new roster"
+            self.status_message = message
+            self._refresh_summary_strip()
+            self._notify_status(message, type="warning", timeout=4000)
+            return False
+
+        target_file = self.runtime_roster_file
+        target_file.parent.mkdir(parents=True, exist_ok=True)
+        temp_file = target_file.with_name(f"{target_file.stem}.upload.{uuid.uuid4().hex}.csv")
+
+        imported_roster: list[RosterStudent] = []
+        try:
+            temp_file.write_bytes(payload)
+            imported_roster = load_roster(temp_file)
+            os.replace(temp_file, target_file)
+        except RosterValidationError as exc:
+            self._safe_unlink(temp_file)
+            message = self._validation_upload_message(exc)
+            self._handle_exception(
+                severity="WARNING",
+                operation="upload_roster",
+                exception=exc,
+                user_message=message,
+                context={
+                    "source_file_name": file_name,
+                    "target_file": str(target_file),
+                    "issues": [
+                        {
+                            "message": issue.message,
+                            "row_number": issue.row_number,
+                            "column": issue.column,
+                        }
+                        for issue in exc.issues
+                    ],
+                },
+            )
+            return False
+        except Exception as exc:  # noqa: BLE001
+            self._safe_unlink(temp_file)
+            self._handle_exception(
+                severity="ERROR",
+                operation="upload_roster",
+                exception=exc,
+                user_message="Roster upload failed",
+                context={
+                    "source_file_name": file_name,
+                    "target_file": str(target_file),
+                },
+            )
+            return False
+
+        self.students_file = target_file
+        self._apply_uploaded_roster(imported_roster)
+
+        message = f"Roster uploaded: {len(imported_roster)} student(s)"
+        self.status_message = message
+        self._refresh_summary_strip()
+        self._notify_status(message, type="positive")
+        return True
+
+    def _validation_upload_message(self, error: RosterValidationError) -> str:
+        if not error.issues:
+            return "Roster upload failed: invalid CSV"
+
+        first_issue = error.issues[0]
+        row_prefix = f"Row {first_issue.row_number}: " if first_issue.row_number is not None else ""
+        extra_count = len(error.issues) - 1
+        extra_suffix = f" (+{extra_count} more issue(s))" if extra_count > 0 else ""
+        return f"Roster upload failed: {row_prefix}{first_issue.message}{extra_suffix}"
+
+    def _safe_unlink(self, path: Path) -> None:
+        if path.exists():
+            try:
+                path.unlink()
+            except OSError:
+                pass
+
+    def _has_unsaved_selected_students(self) -> bool:
+        students = self._current_selected_students()
+        return any(self._draft_key(student.student_id) not in self.saved_keys for student in students)
+
+    def _apply_uploaded_roster(self, roster: list[RosterStudent]) -> None:
+        self.roster = roster
+        self.filtered_students = []
+        self.selected_student_ids = []
+        self.card_handles_by_student_id = {}
+        self.draft_state_by_key.clear()
+        self.expanded_keys.clear()
+        self.saved_keys = set()
+        self.save_transactions.clear()
+        self._pending_card_effect_by_student_id.clear()
+        self._missing_subject_warning_grade = None
+
+        if self._selectors_initialized():
+            self._initialize_selectors()
+            self._reload_saved_keys_for_date()
+            self._render_batch_cards()
+            self._refresh_summary_strip()
+
+    def _selectors_initialized(self) -> bool:
+        return all([self.grade_select, self.class_switch, self.student_select, self.date_input])
 
     def _grade_options(self) -> dict[str, str]:
         grades = sorted({student.grade for student in self.roster}, key=self._sort_key)

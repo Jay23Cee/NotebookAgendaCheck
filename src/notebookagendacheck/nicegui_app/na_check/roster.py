@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+from dataclasses import dataclass
 from pathlib import Path
 
 from openpyxl import load_workbook
@@ -21,12 +23,35 @@ SUBJECT_ALIASES = {
     "science": "Science",
     "sci": "Science",
 }
+CSV_REQUIRED_KEYS = ("studentid", "studentname", "grade", "subject")
+CSV_ALLOWED_GRADES = {"6", "7", "8"}
+
+
+@dataclass(frozen=True)
+class RosterValidationIssue:
+    message: str
+    row_number: int | None = None
+    column: str | None = None
+
+
+class RosterValidationError(ValueError):
+    def __init__(self, message: str, issues: list[RosterValidationIssue]) -> None:
+        super().__init__(message)
+        self.issues = issues
 
 
 def load_roster(path: Path) -> list[RosterStudent]:
     if not path.exists():
         raise FileNotFoundError(f"Roster file not found: {path}")
+    suffix = path.suffix.lower()
+    if suffix == ".csv":
+        return _load_roster_csv(path)
+    if suffix == ".xlsx":
+        return _load_roster_xlsx(path)
+    raise ValueError(f"Unsupported roster file type: {path.suffix or '<none>'}")
 
+
+def _load_roster_xlsx(path: Path) -> list[RosterStudent]:
     workbook = load_workbook(path, read_only=True, data_only=True)
     try:
         sheet = workbook.active
@@ -75,6 +100,155 @@ def load_roster(path: Path) -> list[RosterStudent]:
         return students
     finally:
         workbook.close()
+
+
+def _load_roster_csv(path: Path) -> list[RosterStudent]:
+    with path.open("r", newline="", encoding="utf-8-sig") as handle:
+        reader = csv.DictReader(handle)
+        if reader.fieldnames is None:
+            raise RosterValidationError(
+                "Roster CSV must include a header row.",
+                issues=[RosterValidationIssue(message="CSV header row is missing.")],
+            )
+
+        normalized_map = _normalized_header_map(reader.fieldnames)
+        missing_keys = [key for key in CSV_REQUIRED_KEYS if key not in normalized_map]
+        if missing_keys:
+            issues = [
+                RosterValidationIssue(
+                    message=f"Missing required column: {_display_field_name(key)}",
+                    column=_display_field_name(key),
+                )
+                for key in missing_keys
+            ]
+            missing_text = ", ".join(_display_field_name(key) for key in missing_keys)
+            raise RosterValidationError(
+                f"Roster CSV missing required columns: {missing_text}",
+                issues=issues,
+            )
+
+        issues: list[RosterValidationIssue] = []
+        students: list[RosterStudent] = []
+        seen_student_ids: set[str] = set()
+
+        for row_number, row in enumerate(reader, start=2):
+            if _is_csv_row_empty(row):
+                continue
+
+            student_id = normalize_cell(row.get(normalized_map["studentid"]))
+            student_name = normalize_cell(row.get(normalized_map["studentname"]))
+            grade_raw = normalize_cell(row.get(normalized_map["grade"]))
+            subject_raw = normalize_cell(row.get(normalized_map["subject"]))
+            period = normalize_cell(row.get(normalized_map["period"])) if "period" in normalized_map else "Unknown"
+
+            if not student_id:
+                issues.append(
+                    RosterValidationIssue(
+                        message="Missing required value for StudentID",
+                        row_number=row_number,
+                        column="StudentID",
+                    )
+                )
+            if not student_name:
+                issues.append(
+                    RosterValidationIssue(
+                        message="Missing required value for StudentName",
+                        row_number=row_number,
+                        column="StudentName",
+                    )
+                )
+
+            normalized_grade = _normalize_csv_grade(grade_raw)
+            if not normalized_grade:
+                issues.append(
+                    RosterValidationIssue(
+                        message=f"Grade must be one of 6, 7, 8 (received: {grade_raw or '<blank>'})",
+                        row_number=row_number,
+                        column="Grade",
+                    )
+                )
+
+            normalized_subject = normalize_subject(subject_raw)
+            if not normalized_subject:
+                issues.append(
+                    RosterValidationIssue(
+                        message=f"Subject must map to Math or Science (received: {subject_raw or '<blank>'})",
+                        row_number=row_number,
+                        column="Subject",
+                    )
+                )
+
+            if student_id:
+                if student_id in seen_student_ids:
+                    issues.append(
+                        RosterValidationIssue(
+                            message=f"Duplicate StudentID value: {student_id}",
+                            row_number=row_number,
+                            column="StudentID",
+                        )
+                    )
+                else:
+                    seen_student_ids.add(student_id)
+
+            if any(issue.row_number == row_number for issue in issues):
+                continue
+
+            students.append(
+                RosterStudent(
+                    grade=normalized_grade,
+                    period=period or "Unknown",
+                    subject=normalized_subject,
+                    student_id=student_id,
+                    student_name=student_name,
+                )
+            )
+
+        if issues:
+            raise RosterValidationError(
+                f"Roster CSV validation failed with {len(issues)} issue(s).",
+                issues=issues,
+            )
+
+        return students
+
+
+def _normalized_header_map(headers: list[str]) -> dict[str, str]:
+    normalized: dict[str, str] = {}
+    for header in headers:
+        clean_header = normalize_header(header)
+        if clean_header and clean_header not in normalized:
+            normalized[clean_header] = str(header)
+    return normalized
+
+
+def _display_field_name(key: str) -> str:
+    display = {
+        "studentid": "StudentID",
+        "studentname": "StudentName",
+        "grade": "Grade",
+        "subject": "Subject",
+        "period": "Period",
+    }
+    return display.get(key, key)
+
+
+def _is_csv_row_empty(row: dict[str, object]) -> bool:
+    return all(normalize_cell(value) == "" for value in row.values())
+
+
+def _normalize_csv_grade(value: str) -> str:
+    cleaned = normalize_cell(value)
+    if not cleaned:
+        return ""
+
+    try:
+        numeric = float(cleaned)
+        if numeric.is_integer():
+            cleaned = str(int(numeric))
+    except ValueError:
+        pass
+
+    return cleaned if cleaned in CSV_ALLOWED_GRADES else ""
 
 
 def normalize_header(value: object) -> str:
