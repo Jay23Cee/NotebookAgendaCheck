@@ -134,12 +134,88 @@ python scripts/generate_mock_excel.py
 ## Supported Interfaces
 
 - Supported and actively maintained: `notebookagendacheck`
+- Android launcher (Phase 1): `android/launcher` (internal/sideload workflow)
 
 ## Run NiceGUI Dashboard (Supported)
 
 ```powershell
 python -m notebookagendacheck
 ```
+
+## Android Launcher APK (Phase 1)
+
+Phase 1 provides an Android launcher app that opens the local NiceGUI backend from a WebView.
+
+- Launcher source: `android/launcher`
+- Expected backend URL: `http://127.0.0.1:8080`
+- Health URL: `http://127.0.0.1:8080/_nach/health`
+
+Important:
+
+- This phase is intended for internal/sideload use.
+- It depends on the backend running separately (for example via Termux + Debian scripts).
+- It is not a Play Store-ready standalone runtime.
+
+### Build prerequisites
+
+- JDK 17
+- Android Studio / Android SDK
+- `JAVA_HOME` configured
+- `ANDROID_SDK_ROOT` (or `ANDROID_HOME`) configured
+
+### Build debug APK
+
+```powershell
+cd android/launcher
+.\gradlew.bat :app:assembleDebug
+```
+
+Output:
+
+- `android/launcher/app/build/outputs/apk/debug/app-debug.apk`
+
+### Build release APK
+
+Generate keystore:
+
+```powershell
+keytool -genkeypair -v -keystore release-upload.jks -alias notebookagenda -keyalg RSA -keysize 2048 -validity 10000
+```
+
+Build release:
+
+```powershell
+cd android/launcher
+.\gradlew.bat :app:assembleRelease
+```
+
+Output:
+
+- `android/launcher/app/build/outputs/apk/release/app-release.apk`
+
+### Install on device
+
+```powershell
+adb install -r android/launcher/app/build/outputs/apk/debug/app-debug.apk
+```
+
+### Runtime behavior
+
+- Starts in `Loading` and probes `/_nach/health`.
+- Loads WebView when backend is healthy.
+- Shows `Backend Offline` state when service is not running.
+- Offline actions:
+  - `Retry`
+  - `Open Termux`
+
+## Self-Contained Android (Phase 2 Scaffold)
+
+Phase 2 files are scaffolded under `android/selfcontained`.
+
+- Contains architecture notes and Kotlin stubs for embedded runtime work.
+- Not integrated into the Phase 1 launcher build.
+- Not release-ready and not Play-ready in current state.
+- Next phase target: embed Python runtime (Chaquopy) and run backend in-app without Termux dependency.
 
 ## Samsung Tab S10 Lite Appliance Deployment (Termux + Debian)
 
