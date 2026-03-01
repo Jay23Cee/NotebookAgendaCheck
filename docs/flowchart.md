@@ -1,119 +1,71 @@
 # Application Flowchart
 
-This document maps the active NiceGUI runtime flow to code-level methods and supporting persistence/scoring modules.
+This document maps the active NiceGUI runtime flow to `na_check_dashboard`.
 
 ## Overview
 
-### Diagram A - End-to-End Overview
+### Diagram A - End-to-End Runtime
 
 ```mermaid
 flowchart TD
-    A["python -m app.nicegui_app\nmain.run()"] --> B["check_page.build()\nCreate shell + header + cards + footer"]
-    B --> C["NAWorkflowController\nInitialize ViewState + computed scores"]
+    A["python -m app.nicegui_app\nmain.run()"] --> B["build_na_check_dashboard()"]
+    B --> C["NACheckDashboard.build()"]
+    C --> D["_initialize_selectors()"]
+    D --> E["load roster + subject filters + student options"]
+    E --> F["_render_batch_cards()"]
 
-    C --> D["Header events\nset_grade / set_check_mode / set_checker_mode / set_checker_student / set_date"]
-    D --> E["_reload_class_context()\nLoad roster + checker options"]
+    F --> G["Card edits\nagenda/notebook/tags/comments"]
+    G --> H["score_form() + apply_auto_rules()"]
 
-    E -->|success| F["session.locked=False\nStudent roster active"]
-    E -->|failure| G["session.locked=True\nLock overlay + status error"]
+    H --> I["Save\n_save_student() / _save_selected_students()"]
+    I --> J["_save_students()"]
+    J --> K["CsvStore.append_rows()"]
+    K --> L["saved_keys + transactions + card effects"]
 
-    F --> H["Card events\nset_* form controls + toggle tags\n(mode-aware controls)"]
-    H --> I["ScoringService.compute()\nAgenda + Notebook + deductions + flag"]
+    M["Undo\n_undo_last_saved()"] --> N["CsvStore.undo_last_saved_rows()"]
+    N --> O["restore draft state + card effects"]
 
-    I --> J["Save + Next\nworkflow_controller.save_next()"]
-    J --> K["CheckRecord.from_student()"]
-    K --> L["append_record()\nCSV append + header auto-upgrade"]
-    L --> M["Advance student index + reset form"]
-
-    I --> N["Undo Last\nworkflow_controller.undo_last()"]
-    N --> O["remove_last_record()"]
-    O --> P["Restore prior student/form state"]
-
-    Q["Keyboard events\nEnter / U"] --> R["KeyboardShortcutService.handle_key()"]
-    R --> J
-    R --> N
+    P["Only Remaining"] --> Q["_replace_saved_selected_cards()"]
+    Q --> R["_find_next_remaining_candidate()"]
 ```
 
-## UI State Machine
+## UI State
 
-### Diagram B - UI Lifecycle and State Transitions
+### Diagram B - Dashboard States
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Locked : initial page build
+    [*] --> Boot
+    Boot --> Ready : roster loaded
+    Boot --> StartupError : roster load fails
 
-    Locked --> LoadingRoster : set_grade
-    LoadingRoster --> Active : _reload_class_context success
-    LoadingRoster --> Locked : _reload_class_context failure
+    Ready --> Editing : select grade/class/students
+    Editing --> Saving : save action
+    Saving --> Editing : write success
+    Saving --> WriteFailed : write exception
 
-    Active --> Active : form edits -> recompute scores
-    Active --> Active : save_next() for non-final student
-    Active --> Complete : current_index >= len(roster)
-    Active --> Active : undo_last() success
+    Editing --> Undoing : undo action
+    Undoing --> Editing : undo success
+    Undoing --> WriteFailed : undo exception
 
-    Complete --> Active : undo_last() success
-    Complete --> LoadingRoster : change grade
-
-    note right of Locked
-      Lock overlay displays:
-      "Select Grade to begin"
-    end note
+    WriteFailed --> Editing : next successful action
 ```
 
-## Scoring + Persistence
+## Persistence + Compatibility
 
-### Diagram C - Scoring, Save, and Undo Pipeline
+### Diagram C - Save Pipeline
 
 ```mermaid
 flowchart TD
-    A["Form controls + tag chips"] --> B["ScoringService.normalize_form()"]
-    B --> C["compute_agenda_score_v2()"]
-    B --> D["compute_notebook_score_v2()"]
-    B --> E["compute_comment_deduction()"]
-    C --> F["compute_mode_totals(check_mode)"]
-    D --> F
-    E --> F
-    F --> G["both: internal/2\nsingle-mode: active /10"]
-    G --> H["compute_issue_flag()"]
-
-    H --> I["workflow_controller.save_next()"]
-    I --> J["CheckRecord.from_student(...score_model=v1)"]
-    J --> K["append_record()"]
-    K --> L["_ensure_output_headers()"]
-
-    M["workflow_controller.undo_last()"] --> N["remove_last_record()"]
-    N --> O["_load_record_into_form()"]
+    A["Draft form state"] --> B["apply_auto_rules()"]
+    B --> C["score_form()"]
+    C --> D["row payload (/10 gradebook + /20 internal)"]
+    D --> E["CsvStore.append_rows()"]
+    E --> F["records/notebook_agenda_checks.csv"]
 ```
 
-### Diagram D - Data Model and CSV Compatibility
+Notes:
 
-```mermaid
-flowchart LR
-    A["CheckRecord.to_csv_row()"] --> B["records/notebook_agenda_checks.csv"]
-    B --> C["load_records_with_warnings()"]
-    C --> D["CheckRecord.from_csv_row()"]
-
-    D --> E["ScoreModel v1 + CheckMode\nuse InternalScore + GradebookScore"]
-    D --> F["Legacy row without ScoreModel"]
-    F --> G["GradebookScore > 10 => legacy /20"]
-    F --> H["GradebookScore <= 10 => legacy /10"]
-
-    I["history_service.resolve_scores()"] --> J["UI history rows\n(date range + comment filters)"]
-```
-
-## UI QA Checklist
-
-Verify at `1366x768`:
-
-- No vertical page overflow in the default dashboard view.
-- Sticky topbar and sticky footer remain visible.
-- Student strip appears as a separate rounded row under the topbar.
-- `both` mode shows 3 cards; single modes show 2 cards with equal heights.
-- Card bottom score strips stay pinned and chips wrap cleanly.
-
-Verify at `1024px` width:
-
-- Cards stack to a single column.
-- Footer summary/actions remain visible and usable.
-- Chip rows continue to wrap cleanly.
-- Keyboard focus states are visible on fields, chips, and buttons.
+- `CheckMode` is written as `both`.
+- Score model is written as `internal20_gradebook10_v1`.
+- Legacy `Period` compatibility is retained in output and history handling.

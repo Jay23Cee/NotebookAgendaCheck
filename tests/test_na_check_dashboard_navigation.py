@@ -6,7 +6,12 @@ import pytest
 from nicegui import ui
 
 from app.nicegui_app.na_check.models import RosterStudent
-from app.nicegui_app.pages.na_check_dashboard import NACheckDashboard
+from app.nicegui_app.pages.na_check_dashboard import (
+    CARD_EFFECT_ENTER,
+    CARD_EFFECT_NEXT,
+    CARD_EFFECT_SAVE,
+    NACheckDashboard,
+)
 
 
 @dataclass
@@ -86,6 +91,20 @@ class DummyButton:
         self.enabled = False
 
 
+class DummyGrid:
+    def clear(self) -> None:
+        return None
+
+    def classes(self, *, replace: str | None = None, add: str | None = None, remove: str | None = None) -> None:
+        return None
+
+    def __enter__(self) -> DummyGrid:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+
 @pytest.fixture(autouse=True)
 def _stub_notify(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ui, "notify", lambda *_args, **_kwargs: None)
@@ -130,6 +149,7 @@ def test_select_next_not_checked_replaces_only_clicked_slot() -> None:
 
     assert dashboard.selected_student_ids == ["S1", "S4", "S3"]
     assert dashboard.status_message == "Moved to next student"
+    assert dashboard._pending_card_effect_by_student_id == {"S4": CARD_EFFECT_NEXT}
 
 
 def test_select_next_not_checked_stops_at_end_without_wrap() -> None:
@@ -178,6 +198,7 @@ def test_replace_saved_selected_cards_wraps_and_preserves_unsaved_slot() -> None
 
     assert dashboard.selected_student_ids == ["S1", "S4", "S2"]
     assert dashboard.status_message == "Replaced 2 saved card(s)"
+    assert dashboard._pending_card_effect_by_student_id == {"S1": CARD_EFFECT_NEXT, "S2": CARD_EFFECT_NEXT}
 
 
 def test_replace_saved_selected_cards_partial_when_remaining_pool_is_short() -> None:
@@ -261,3 +282,41 @@ def test_notify_status_ignores_deleted_slot_runtime_error(monkeypatch: pytest.Mo
     monkeypatch.setattr(dashboard.error_logger, "log_exception", lambda **_kwargs: None)
 
     dashboard._notify_status("Message after re-render")
+
+
+def test_on_student_selection_change_queues_enter_effect_for_new_selection() -> None:
+    dashboard = _dashboard()
+    dashboard.selected_student_ids = ["S1"]
+    dashboard.student_select.value = ["S1", "S2", "S3"]
+
+    dashboard._on_student_selection_change(None)  # type: ignore[arg-type]
+
+    assert dashboard.selected_student_ids == ["S1", "S2", "S3"]
+    assert dashboard._pending_card_effect_by_student_id == {
+        "S2": CARD_EFFECT_ENTER,
+        "S3": CARD_EFFECT_ENTER,
+    }
+
+
+def test_compose_card_classes_includes_effect_class_when_queued() -> None:
+    dashboard = _dashboard()
+
+    base_class = dashboard._compose_card_classes("S1", is_saved=True, is_draft=False)
+    assert base_class == "na2-student-card na2-card-saved"
+
+    dashboard._queue_card_effect(["S1"], CARD_EFFECT_SAVE)
+    animated_class = dashboard._compose_card_classes("S1", is_saved=True, is_draft=False)
+    assert animated_class == "na2-student-card na2-card-saved na2-card-effect-save"
+
+
+def test_render_batch_cards_clears_pending_effects_after_refresh_cycle() -> None:
+    dashboard = _dashboard()
+    dashboard.batch_grid = DummyGrid()  # type: ignore[assignment]
+    dashboard.selected_student_ids = ["S1"]
+    dashboard._pending_card_effect_by_student_id = {"S1": CARD_EFFECT_SAVE}
+    dashboard._build_student_card = lambda _student, _render_index: None  # type: ignore[assignment]
+    dashboard._refresh_card = lambda _student_id: None  # type: ignore[assignment]
+
+    dashboard._render_batch_cards()
+
+    assert dashboard._pending_card_effect_by_student_id == {}

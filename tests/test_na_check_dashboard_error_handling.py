@@ -11,6 +11,8 @@ from nicegui import ui
 from app.nicegui_app.na_check.models import RosterStudent
 from app.nicegui_app.na_check.storage import CsvStore
 from app.nicegui_app.pages.na_check_dashboard import (
+    CARD_EFFECT_SAVE,
+    CARD_EFFECT_UNDO,
     NACheckDashboard,
     SaveSnapshot,
     SaveTransaction,
@@ -135,6 +137,7 @@ def test_save_failure_sets_unsaved_state_and_preserves_drafts(
     assert dashboard.status_message == "Unsaved - Write Failed"
     assert key in dashboard.draft_state_by_key
     assert key not in dashboard.saved_keys
+    assert dashboard._pending_card_effect_by_student_id == {}
     assert len(notify_calls) == 1
 
 
@@ -179,4 +182,30 @@ def test_undo_failure_restores_transaction_stack(
     assert dashboard.write_state == WRITE_STATE_UNSAVED_WRITE_FAILED
     assert dashboard.status_message == "Unsaved - Write Failed"
     assert len(dashboard.save_transactions) == 1
+    assert dashboard._pending_card_effect_by_student_id == {}
     assert len(notify_calls) == 1
+
+
+def test_save_success_queues_save_effect(tmp_path: Path, notify_calls: list[str]) -> None:
+    dashboard = _dashboard(tmp_path)
+    student = dashboard.roster[0]
+
+    dashboard._save_students([student])
+
+    assert dashboard.status_message == "Saved 1 student(s)"
+    assert dashboard._pending_card_effect_by_student_id == {student.student_id: CARD_EFFECT_SAVE}
+    assert notify_calls[-1] == "Saved 1 student(s)"
+
+
+def test_undo_success_queues_undo_effect(tmp_path: Path, notify_calls: list[str]) -> None:
+    dashboard = _dashboard(tmp_path)
+    student = dashboard.roster[0]
+
+    dashboard._save_students([student])
+    dashboard._pending_card_effect_by_student_id.clear()
+
+    dashboard._undo_last_saved()
+
+    assert dashboard.status_message == "Undid the last save transaction"
+    assert dashboard._pending_card_effect_by_student_id == {student.student_id: CARD_EFFECT_UNDO}
+    assert notify_calls[-1] == "Undid the last save transaction"
