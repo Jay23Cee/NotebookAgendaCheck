@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Notebook Agenda Check Launcher</string>
+    <string name="state_loading">Loading</string>
+    <string name="state_offline">Backend Offline</string>
+    <string name="offline_help">Start the Notebook Agenda Check service in Termux, then tap Retry.</string>
+    <string name="retry_button">Retry</string>
+    <string name="open_termux_button">Open Termux</string>
+    <string name="termux_not_found">Termux is not installed on this device.</string>
+</resources>
