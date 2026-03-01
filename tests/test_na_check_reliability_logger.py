@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from app.nicegui_app.na_check.reliability import ErrorEvent, ResilientErrorLogger
+from notebookagendacheck.nicegui_app.na_check.reliability import ErrorEvent, ResilientErrorLogger
 
 
 def _read_rows(path: Path) -> list[dict[str, str]]:
@@ -68,3 +68,4 @@ def test_resilient_logger_falls_back_to_ring_buffer(monkeypatch, tmp_path: Path)
 
     assert len(logger.ring_buffer) == 1
     assert logger.ring_buffer[0]["Operation"] == "ring_buffer_fallback"
+

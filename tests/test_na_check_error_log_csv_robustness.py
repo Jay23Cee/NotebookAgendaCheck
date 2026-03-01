@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from app.nicegui_app.na_check.reliability import ErrorEvent, ResilientErrorLogger
+from notebookagendacheck.nicegui_app.na_check.reliability import ErrorEvent, ResilientErrorLogger
 
 
 def _read_rows(path: Path) -> list[dict[str, str]]:
@@ -42,3 +42,4 @@ def test_error_log_csv_handles_long_multiline_and_unicode_fields(tmp_path: Path)
     assert "multiline error" in row["ExceptionMessage"]
     assert "\n" in row["Traceback"]
     assert "café" in row["ContextJson"]
+

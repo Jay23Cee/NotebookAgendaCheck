@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.nicegui_app import main
+from notebookagendacheck.nicegui_app import main
 
 
 def _capture_ui_run(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
@@ -61,3 +61,4 @@ def test_run_ignores_invalid_env_values(monkeypatch: pytest.MonkeyPatch) -> None
     assert captured["port"] == 8080
     assert captured["show"] is False
     assert captured["reload"] is False
+

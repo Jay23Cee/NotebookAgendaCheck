@@ -18,6 +18,18 @@ dev = [
     "pytest==8.3.3",
 ]
 
+[project.scripts]
+notebookagendacheck = "notebookagendacheck.__main__:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
 [tool.setuptools.packages.find]
-include = ["app*"]
+where = ["src"]
+include = ["notebookagendacheck*"]
 namespaces = false
+
+[tool.setuptools.package-data]
+"notebookagendacheck.nicegui_app.styles" = ["*.css"]
+"notebookagendacheck.data" = ["*.xlsx"]

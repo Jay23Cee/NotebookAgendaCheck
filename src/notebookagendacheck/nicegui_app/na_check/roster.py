@@ -4,7 +4,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from app.nicegui_app.na_check.models import RosterStudent
+from notebookagendacheck.nicegui_app.na_check.models import RosterStudent
 
 GRADE_KEYS = ("grade", "classgrade")
 PERIOD_KEYS = ("period", "section", "block", "classperiod")
@@ -116,4 +116,5 @@ def resolve_name(values: list[object], *, idx_name: int | None, idx_first: int |
 def normalize_subject(raw_subject: str) -> str:
     lowered = raw_subject.strip().lower()
     return SUBJECT_ALIASES.get(lowered, "")
+
 

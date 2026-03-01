@@ -3,8 +3,8 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from app.nicegui_app.na_check.reliability import ResilientErrorLogger
-from app.nicegui_app.na_check.storage import CsvStore
+from notebookagendacheck.nicegui_app.na_check.reliability import ResilientErrorLogger
+from notebookagendacheck.nicegui_app.na_check.storage import CsvStore
 
 
 def _read_headers(path: Path) -> list[str]:
@@ -56,3 +56,4 @@ def test_missing_required_header_is_quarantined_and_recreated(tmp_path: Path) ->
     assert "Date" in headers
     quarantined = list(quarantine_dir.glob("checks.csv.corrupt.*.session-2.csv"))
     assert len(quarantined) == 1
+

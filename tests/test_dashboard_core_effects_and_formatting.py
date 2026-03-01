@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from app.nicegui_app.pages.dashboard_core.effects import (
+from notebookagendacheck.nicegui_app.pages.dashboard_core.effects import (
     compose_card_classes,
     effect_class_for_student,
     queue_card_effect,
     queue_enter_effect_for_new_selection,
 )
-from app.nicegui_app.pages.dashboard_core.formatting import (
+from notebookagendacheck.nicegui_app.pages.dashboard_core.formatting import (
     comment_summary_text,
     normalized_check_date,
     tags_summary_text,
@@ -68,4 +68,5 @@ def test_tags_comment_and_date_formatting() -> None:
     assert comment_summary_text(["Unreadable"], "") == "Comment: Unreadable"
     assert normalized_check_date("2026-02-28") == "02/28/2026"
     assert normalized_check_date("bad-date") is None
+
 

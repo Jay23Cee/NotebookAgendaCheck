@@ -4,15 +4,15 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
 
-from app.flags import NO_ISSUE_FLAG
-from app.models import CheckRecord
-from app.scoring import (
+from notebookagendacheck.flags import NO_ISSUE_FLAG
+from notebookagendacheck.models import CheckRecord
+from notebookagendacheck.scoring import (
     AGENDA_FILLED_BLANK,
     CHECK_MODE_BOTH,
     CHECK_MODE_OPTIONS,
     NOTEBOOK_WORK_MISSING,
 )
-from app.students import Student
+from notebookagendacheck.students import Student
 
 StatusLevel = Literal["info", "warn", "error"]
 CheckerMode = Literal["teacher", "student"]
@@ -137,3 +137,4 @@ class ViewState:
     @property
     def can_undo(self) -> bool:
         return not self.session.locked and bool(self.save_history)
+

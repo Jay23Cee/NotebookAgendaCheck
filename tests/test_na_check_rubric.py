@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from app.flags import MESSY_UNREADABLE_FLAG, MISSING_AGENDA_FLAG, MISSING_NOTEBOOK_FLAG, NO_ISSUE_FLAG
-from app.nicegui_app.na_check.models import CheckFormState
-from app.nicegui_app.na_check.scoring import apply_auto_rules, score_form
-from app.scoring import COMMENT_TAG_INCOMPLETE_WORK
+from notebookagendacheck.flags import MESSY_UNREADABLE_FLAG, MISSING_AGENDA_FLAG, MISSING_NOTEBOOK_FLAG, NO_ISSUE_FLAG
+from notebookagendacheck.nicegui_app.na_check.models import CheckFormState
+from notebookagendacheck.nicegui_app.na_check.scoring import apply_auto_rules, score_form
+from notebookagendacheck.scoring import COMMENT_TAG_INCOMPLETE_WORK
 
 
 def test_default_speed_mode_scores_full_credit() -> None:
@@ -129,3 +129,4 @@ def test_negative_tag_applies_status_deduction() -> None:
     assert scores.status_score == -5.0
     assert scores.total_score == 15.0
     assert scores.gradebook_score == 7.5
+

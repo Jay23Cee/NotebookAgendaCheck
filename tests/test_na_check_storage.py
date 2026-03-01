@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from app.nicegui_app.na_check.storage import CsvStore
+from notebookagendacheck.nicegui_app.na_check.storage import CsvStore
 
 
 def _read_rows(path: Path) -> list[dict[str, str]]:
@@ -47,4 +47,5 @@ def test_append_rows_and_undo_last_saved_rows(tmp_path: Path) -> None:
     rows = _read_rows(output)
     assert len(rows) == 1
     assert rows[0]["StudentID"] == "S1"
+
 

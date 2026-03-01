@@ -4,7 +4,7 @@ from pathlib import Path
 
 from openpyxl import Workbook
 
-from app.nicegui_app.na_check.roster import load_roster
+from notebookagendacheck.nicegui_app.na_check.roster import load_roster
 
 
 def _write_roster(path: Path, header: list[str], rows: list[list[object]]) -> None:
@@ -46,3 +46,4 @@ def test_load_roster_sets_empty_subject_when_subject_column_missing(tmp_path: Pa
 
     assert len(students) == 1
     assert students[0].subject == ""
+

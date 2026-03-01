@@ -105,7 +105,7 @@ def build_rows(students_per_grade: int = 54) -> list[list[str | int]]:
 
 
 def main() -> None:
-    output_file = Path("data/mock_students.xlsx")
+    output_file = Path(__file__).resolve().parents[1] / "src" / "notebookagendacheck" / "data" / "mock_students.xlsx"
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
     workbook = Workbook()

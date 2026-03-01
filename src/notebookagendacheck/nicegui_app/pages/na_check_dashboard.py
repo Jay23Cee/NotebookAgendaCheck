@@ -9,17 +9,17 @@ import uuid
 from nicegui import ui
 from nicegui.events import KeyEventArguments, ValueChangeEventArguments
 
-from app.constants import (
+from notebookagendacheck.constants import (
     DEFAULT_NA_CHECK_ERROR_LOG_FILE,
     DEFAULT_NA_CHECK_QUARANTINE_DIR,
     DEFAULT_OUTPUT_FILE,
     DEFAULT_STUDENTS_FILE,
     DEFAULT_UI_PREFERENCES_FILE,
 )
-from app.nicegui_app.na_check.models import CheckFormState, RosterStudent
-from app.nicegui_app.na_check.reliability import LogSeverity, NotificationSuppressor, ResilientErrorLogger
-from app.nicegui_app.na_check.roster import load_roster
-from app.nicegui_app.na_check.scoring import (
+from notebookagendacheck.nicegui_app.na_check.models import CheckFormState, RosterStudent
+from notebookagendacheck.nicegui_app.na_check.reliability import LogSeverity, NotificationSuppressor, ResilientErrorLogger
+from notebookagendacheck.nicegui_app.na_check.roster import load_roster
+from notebookagendacheck.nicegui_app.na_check.scoring import (
     COMMENT_PRESETS,
     TAG_DEFINITIONS,
     TAG_LABEL_BY_KEY,
@@ -27,28 +27,28 @@ from app.nicegui_app.na_check.scoring import (
     default_form_state,
     score_form,
 )
-from app.nicegui_app.na_check.storage import CsvStore
-from app.nicegui_app.pages.dashboard_core.effects import (
+from notebookagendacheck.nicegui_app.na_check.storage import CsvStore
+from notebookagendacheck.nicegui_app.pages.dashboard_core.effects import (
     compose_card_classes as core_compose_card_classes,
     effect_class_for_student as core_effect_class_for_student,
     queue_card_effect as core_queue_card_effect,
     queue_enter_effect_for_new_selection as core_queue_enter_effect_for_new_selection,
 )
-from app.nicegui_app.pages.dashboard_core.formatting import (
+from notebookagendacheck.nicegui_app.pages.dashboard_core.formatting import (
     comment_summary_text as core_comment_summary_text,
     normalized_check_date as core_normalized_check_date,
     tags_summary_text as core_tags_summary_text,
 )
-from app.nicegui_app.pages.dashboard_core.preferences import (
+from notebookagendacheck.nicegui_app.pages.dashboard_core.preferences import (
     load_preferences as core_load_preferences,
     persist_preferences as core_persist_preferences,
 )
-from app.nicegui_app.pages.dashboard_core.selection import (
+from notebookagendacheck.nicegui_app.pages.dashboard_core.selection import (
     find_next_remaining_candidate as core_find_next_remaining_candidate,
     normalize_selected_student_ids,
     remaining_student_ids,
 )
-from app.scoring import SCORE_MODEL_INTERNAL20_GRADEBOOK10_V1
+from notebookagendacheck.scoring import SCORE_MODEL_INTERNAL20_GRADEBOOK10_V1
 
 PREFERENCES_KEY = "na_check_dashboard"
 MAX_SELECTED_STUDENTS = 3
@@ -1565,3 +1565,4 @@ class NACheckDashboard:
 def build_na_check_dashboard() -> None:
     dashboard = NACheckDashboard()
     dashboard.build()
+

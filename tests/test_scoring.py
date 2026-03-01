@@ -1,6 +1,6 @@
 import pytest
 
-from app.scoring import (
+from notebookagendacheck.scoring import (
     AGENDA_FILLED_BLANK,
     AGENDA_FILLED_COMPLETE,
     AGENDA_FILLED_PARTIAL,
@@ -161,3 +161,4 @@ def test_normalize_check_mode_defaults_to_both() -> None:
     assert normalize_check_mode(None) == CHECK_MODE_BOTH
     assert normalize_check_mode("") == CHECK_MODE_BOTH
     assert normalize_check_mode("unknown") == CHECK_MODE_BOTH
+

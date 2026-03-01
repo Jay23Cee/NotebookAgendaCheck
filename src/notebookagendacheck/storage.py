@@ -3,7 +3,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.models import CSV_FIELDNAMES, CheckRecord
+from notebookagendacheck.models import CSV_FIELDNAMES, CheckRecord
 
 
 @dataclass(frozen=True)
@@ -179,3 +179,4 @@ def _ensure_output_headers(output_file: Path) -> list[str]:
     temp_file.replace(output_file)
 
     return upgraded_headers
+

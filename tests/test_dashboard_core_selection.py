@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from app.nicegui_app.na_check.models import RosterStudent
-from app.nicegui_app.pages.dashboard_core.selection import (
+from notebookagendacheck.nicegui_app.na_check.models import RosterStudent
+from notebookagendacheck.nicegui_app.pages.dashboard_core.selection import (
     find_next_remaining_candidate,
     normalize_selected_student_ids,
     remaining_student_ids,
@@ -76,4 +76,5 @@ def test_find_next_remaining_candidate_with_wrap() -> None:
     )
 
     assert found == "S1"
+
 

@@ -1,5 +1,6 @@
-from app.nicegui_app.main import run
+from notebookagendacheck.nicegui_app.main import run
 
 
 if __name__ == "__main__":
     run()
+

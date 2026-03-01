@@ -9,13 +9,13 @@ import time
 
 from nicegui import ui
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+SRC = Path(__file__).resolve().parents[1] / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
 
-from app.nicegui_app.na_check.models import RosterStudent
-from app.nicegui_app.na_check.storage import CsvStore
-from app.nicegui_app.pages.na_check_dashboard import NACheckDashboard
+from notebookagendacheck.nicegui_app.na_check.models import RosterStudent
+from notebookagendacheck.nicegui_app.na_check.storage import CsvStore
+from notebookagendacheck.nicegui_app.pages.na_check_dashboard import NACheckDashboard
 
 RUNS = 30
 OVERHEAD_TARGET_MS = 5.0
@@ -148,3 +148,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

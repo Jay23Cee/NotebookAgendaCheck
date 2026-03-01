@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 from nicegui import ui
 
-from app.nicegui_app.na_check.models import RosterStudent
-from app.nicegui_app.na_check.storage import CsvStore
-from app.nicegui_app.pages.na_check_dashboard import (
+from notebookagendacheck.nicegui_app.na_check.models import RosterStudent
+from notebookagendacheck.nicegui_app.na_check.storage import CsvStore
+from notebookagendacheck.nicegui_app.pages.na_check_dashboard import (
     CARD_EFFECT_SAVE,
     CARD_EFFECT_UNDO,
     NACheckDashboard,
@@ -209,3 +209,4 @@ def test_undo_success_queues_undo_effect(tmp_path: Path, notify_calls: list[str]
     assert dashboard.status_message == "Undid the last save transaction"
     assert dashboard._pending_card_effect_by_student_id == {student.student_id: CARD_EFFECT_UNDO}
     assert notify_calls[-1] == "Undid the last save transaction"
+

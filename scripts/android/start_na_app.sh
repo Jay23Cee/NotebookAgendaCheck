@@ -36,7 +36,7 @@ if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
   exit 0
 fi
 
-APP_CMD="cd \"$PROJECT_DIR\" && . .venv/bin/activate && export NACH_HOST=\"$NACH_HOST\" NACH_PORT=\"$NACH_PORT\" NACH_SHOW=\"$NACH_SHOW\" NACH_RELOAD=\"$NACH_RELOAD\" && python -m app.nicegui_app"
+APP_CMD="cd \"$PROJECT_DIR\" && . .venv/bin/activate && export NACH_HOST=\"$NACH_HOST\" NACH_PORT=\"$NACH_PORT\" NACH_SHOW=\"$NACH_SHOW\" NACH_RELOAD=\"$NACH_RELOAD\" && python -m notebookagendacheck"
 tmux new-session -d -s "$SESSION_NAME" "$APP_CMD"
 echo "Started session '\''$SESSION_NAME'\'' with host=$NACH_HOST port=$NACH_PORT."
 '

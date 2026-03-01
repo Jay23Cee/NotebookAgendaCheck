@@ -4,7 +4,7 @@ Local tool for **Notebook + Agenda checks** by **grade**.
 
 ## Safety
 
-- Student roster is read automatically from `data/mock_students.xlsx`.
+- Student roster is read automatically from bundled package data at `src/notebookagendacheck/data/mock_students.xlsx`.
 - Dashboard roster must include a `Subject` column with `Math`/`Science` values.
 - The app **does not push or sync data to Google**.
 - The app **does not write any Excel files into a save folder**.
@@ -102,12 +102,12 @@ python scripts/generate_mock_excel.py
 
 ## Supported Interfaces
 
-- Supported and actively maintained: `app.nicegui_app`
+- Supported and actively maintained: `notebookagendacheck`
 
 ## Run NiceGUI Dashboard (Supported)
 
 ```powershell
-python -m app.nicegui_app
+python -m notebookagendacheck
 ```
 
 ## Samsung Tab S10 Lite Appliance Deployment (Termux + Debian)
@@ -121,17 +121,17 @@ This deployment mode is intended for stable day-to-day tablet operation:
 
 ### Runtime env configuration
 
-`app.nicegui_app.main` supports these environment variables:
+`notebookagendacheck.nicegui_app.main` supports these environment variables:
 
 - `NACH_HOST` (default: `127.0.0.1`)
 - `NACH_PORT` (default: `8080`)
 - `NACH_SHOW` (default: `false`)
 - `NACH_RELOAD` (default: `false`)
 
-Launch command remains:
+Launch command:
 
 ```bash
-python -m app.nicegui_app
+python -m notebookagendacheck
 ```
 
 ### Phase 0: Preflight checks in Termux
@@ -233,7 +233,7 @@ Behavior:
 - acquires wake lock if available
 - logs into Debian
 - starts or reuses `tmux` session `na_app`
-- runs `python -m app.nicegui_app` with default:
+- runs `python -m notebookagendacheck` with default:
   - `NACH_HOST=127.0.0.1`
   - `NACH_PORT=8080`
   - `NACH_SHOW=false`
@@ -359,9 +359,9 @@ pip install -r requirements.lock.txt
 
 Developer notes:
 
-- Global theme styles are in `app/nicegui_app/styles/dashboard.css`.
-- Dashboard-specific styles are in `app/nicegui_app/styles/na_check_dashboard.css`.
-- Dashboard helper logic is in `app/nicegui_app/pages/dashboard_core/`.
+- Global theme styles are in `src/notebookagendacheck/nicegui_app/styles/dashboard.css`.
+- Dashboard-specific styles are in `src/notebookagendacheck/nicegui_app/styles/na_check_dashboard.css`.
+- Dashboard helper logic is in `src/notebookagendacheck/nicegui_app/pages/dashboard_core/`.
 
 In the NiceGUI app:
 
@@ -383,7 +383,7 @@ In the NiceGUI app:
 
 Roster source and output CSV:
 
-- Roster source: `data/mock_students.xlsx`
+- Roster source: `src/notebookagendacheck/data/mock_students.xlsx`
 - Output CSV: `records/notebook_agenda_checks.csv`
 
 ## UI QA Checklist
@@ -444,3 +444,4 @@ Notes:
 - For legacy rows missing `ScoreModel`, history infers display scale:
   - `GradebookScore > 10` is treated as legacy internal `/20` and shown as `/10` by dividing by 2.
   - `GradebookScore <= 10` is treated as legacy `/10` and internal is inferred as `x2`.
+

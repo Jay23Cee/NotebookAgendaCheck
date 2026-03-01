@@ -1,4 +1,4 @@
-from app.scoring import (
+from notebookagendacheck.scoring import (
     CHECK_MODE_AGENDA_ONLY,
     CHECK_MODE_BOTH,
     CHECK_MODE_NOTEBOOK_ONLY,
@@ -81,3 +81,4 @@ def compute_issue_flag(
     if not organized:
         return MESSY_UNREADABLE_FLAG
     return NO_ISSUE_FLAG
+

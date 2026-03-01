@@ -5,8 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.nicegui_app.pages import na_check_dashboard as dashboard_module
-from app.nicegui_app.pages.na_check_dashboard import NACheckDashboard
+from notebookagendacheck.nicegui_app.pages import na_check_dashboard as dashboard_module
+from notebookagendacheck.nicegui_app.pages.na_check_dashboard import NACheckDashboard
 
 
 class _FakeSlotContext:
@@ -201,3 +201,4 @@ def test_build_date_control_preserves_date_change_handler(patched_date_ui: dict[
     handler = date_input.handlers["change"]
     assert getattr(handler, "__self__", None) is dashboard
     assert getattr(handler, "__func__", None) is NACheckDashboard._on_date_change
+

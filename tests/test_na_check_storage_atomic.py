@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from app.nicegui_app.na_check.storage import CsvStore
+from notebookagendacheck.nicegui_app.na_check.storage import CsvStore
 
 
 def _read_rows(path: Path) -> list[dict[str, str]]:
@@ -77,7 +77,7 @@ def test_append_rows_retries_share_lock_once(monkeypatch: pytest.MonkeyPatch, tm
         original_write(headers, rows)
 
     monkeypatch.setattr(store, "_write_snapshot_atomic", flaky_write)
-    monkeypatch.setattr("app.nicegui_app.na_check.storage.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("notebookagendacheck.nicegui_app.na_check.storage.time.sleep", lambda _seconds: None)
 
     store.append_rows([{"StudentID": "S1", "Date": "02/28/2026"}])
 
@@ -85,3 +85,4 @@ def test_append_rows_retries_share_lock_once(monkeypatch: pytest.MonkeyPatch, tm
     rows = _read_rows(output)
     assert len(rows) == 1
     assert rows[0]["StudentID"] == "S1"
+

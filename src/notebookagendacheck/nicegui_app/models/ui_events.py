@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.nicegui_app.models.ui_state import StatusLevel
+from notebookagendacheck.nicegui_app.models.ui_state import StatusLevel
 
 
 @dataclass(frozen=True)
@@ -24,3 +24,4 @@ class HistoryDisplayRow:
     comment_deduction: float
     has_comment: bool
     comments: str
+

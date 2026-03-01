@@ -1,9 +1,9 @@
 import csv
 from pathlib import Path
 
-from app.models import CheckRecord
-from app.scoring import SCORE_MODEL_INTERNAL20_GRADEBOOK10_V1
-from app.storage import (
+from notebookagendacheck.models import CheckRecord
+from notebookagendacheck.scoring import SCORE_MODEL_INTERNAL20_GRADEBOOK10_V1
+from notebookagendacheck.storage import (
     append_record,
     export_summary_csv,
     load_insights_visibility,
@@ -270,3 +270,4 @@ def test_load_insights_visibility_ignores_non_bool_values(tmp_path: Path) -> Non
         encoding="utf-8",
     )
     assert load_insights_visibility(prefs) == {"8:3": False}
+

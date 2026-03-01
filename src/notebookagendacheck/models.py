@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.flags import normalize_issue_flag
-from app.scoring import (
+from notebookagendacheck.flags import normalize_issue_flag
+from notebookagendacheck.scoring import (
     AGENDA_FILLED_BLANK,
     AGENDA_FILLED_COMPLETE,
     AGENDA_FILLED_OPTIONS,
@@ -11,7 +11,7 @@ from app.scoring import (
     NOTEBOOK_WORK_MISSING,
     NOTEBOOK_WORK_OPTIONS,
 )
-from app.students import Student
+from notebookagendacheck.students import Student
 
 
 CSV_FIELDNAMES = [
@@ -320,3 +320,4 @@ def _derive_agenda_filled_today(*, agenda_present: bool, entry_written: bool, al
     if entry_written:
         return AGENDA_FILLED_PARTIAL
     return AGENDA_FILLED_BLANK
+

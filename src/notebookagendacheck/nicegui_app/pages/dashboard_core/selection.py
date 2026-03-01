@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Callable, Sequence
 
-from app.nicegui_app.na_check.models import RosterStudent
+from notebookagendacheck.nicegui_app.na_check.models import RosterStudent
 
 
 def normalize_selected_student_ids(
@@ -67,4 +67,5 @@ def find_next_remaining_candidate(
             continue
         return student_id
     return None
+
 

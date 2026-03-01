@@ -9,8 +9,8 @@ from pathlib import Path
 import time
 from typing import TypeVar
 
-from app.models import CSV_FIELDNAMES
-from app.nicegui_app.na_check.reliability import LogSeverity, ResilientErrorLogger
+from notebookagendacheck.models import CSV_FIELDNAMES
+from notebookagendacheck.nicegui_app.na_check.reliability import LogSeverity, ResilientErrorLogger
 
 OUTPUT_COLUMNS = ["StudentID", "StudentName", "Grade", "Period"] + [
     column for column in CSV_FIELDNAMES if column not in {"StudentID", "StudentName", "Grade"}
@@ -328,3 +328,4 @@ class CsvStore:
             exception=exception,
             context=context,
         )
+

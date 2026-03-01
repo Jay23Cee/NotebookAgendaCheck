@@ -4,7 +4,7 @@ from pathlib import Path
 
 from nicegui import ui
 
-from app.nicegui_app.styles.tokens import (
+from notebookagendacheck.nicegui_app.styles.tokens import (
     COLOR_TOKENS,
     LAYOUT_TOKENS,
     RADIUS_TOKENS,
@@ -45,3 +45,4 @@ def _css_variables() -> str:
     lines.extend([f"  {token}: {value};" for token, value in tokens.items()])
     lines.append("}")
     return "\n".join(lines)
+

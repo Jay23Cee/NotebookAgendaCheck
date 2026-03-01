@@ -4,9 +4,9 @@ import os
 
 from nicegui import ui
 
-from app.constants import APP_DISPLAY_NAME
-from app.nicegui_app.pages.na_check_dashboard import build_na_check_dashboard
-from app.nicegui_app.styles.theme import apply_theme
+from notebookagendacheck.constants import APP_DISPLAY_NAME
+from notebookagendacheck.nicegui_app.pages.na_check_dashboard import build_na_check_dashboard
+from notebookagendacheck.nicegui_app.styles.theme import apply_theme
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8080
@@ -62,3 +62,4 @@ def run() -> None:
 
 if __name__ == "__main__":
     run()
+

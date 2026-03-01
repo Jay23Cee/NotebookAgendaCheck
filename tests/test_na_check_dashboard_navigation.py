@@ -5,8 +5,8 @@ from dataclasses import dataclass
 import pytest
 from nicegui import ui
 
-from app.nicegui_app.na_check.models import RosterStudent
-from app.nicegui_app.pages.na_check_dashboard import (
+from notebookagendacheck.nicegui_app.na_check.models import RosterStudent
+from notebookagendacheck.nicegui_app.pages.na_check_dashboard import (
     CARD_EFFECT_ENTER,
     CARD_EFFECT_NEXT,
     CARD_EFFECT_SAVE,
@@ -320,3 +320,4 @@ def test_render_batch_cards_clears_pending_effects_after_refresh_cycle() -> None
     dashboard._render_batch_cards()
 
     assert dashboard._pending_card_effect_by_student_id == {}
+

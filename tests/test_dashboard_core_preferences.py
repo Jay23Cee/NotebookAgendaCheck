@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from app.nicegui_app.pages.dashboard_core.preferences import load_preferences, persist_preferences
+from notebookagendacheck.nicegui_app.pages.dashboard_core.preferences import load_preferences, persist_preferences
 
 
 def test_persist_preferences_merges_into_existing_payload(tmp_path: Path) -> None:
@@ -47,4 +47,5 @@ def test_load_preferences_calls_error_handler_for_invalid_json(tmp_path: Path) -
 
     assert loaded == {}
     assert errors == ["JSONDecodeError"]
+
 

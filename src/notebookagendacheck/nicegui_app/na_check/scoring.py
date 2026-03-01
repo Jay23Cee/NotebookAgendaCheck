@@ -3,9 +3,9 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass
 
-from app.flags import compute_issue_flag
-from app.nicegui_app.na_check.models import CheckFormState, ScoreBreakdown
-from app.scoring import (
+from notebookagendacheck.flags import compute_issue_flag
+from notebookagendacheck.nicegui_app.na_check.models import CheckFormState, ScoreBreakdown
+from notebookagendacheck.scoring import (
     CHECK_MODE_BOTH,
     COMMENT_TAG_DIFFICULT_TO_READ,
     COMMENT_TAG_DISORGANIZED,
@@ -167,3 +167,4 @@ def _dedupe_ordered(values: list[str]) -> list[str]:
         seen.add(value)
         deduped.append(value)
     return deduped
+

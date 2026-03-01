@@ -1,4 +1,4 @@
-from app.flags import (
+from notebookagendacheck.flags import (
     AUTO_FLAG_PRIORITY,
     BLANK_ENTRIES_FLAG,
     INCOMPLETE_SUBJECTS_FLAG,
@@ -10,7 +10,7 @@ from app.flags import (
     compute_issue_flag,
     normalize_issue_flag,
 )
-from app.scoring import CHECK_MODE_AGENDA_ONLY, CHECK_MODE_NOTEBOOK_ONLY
+from notebookagendacheck.scoring import CHECK_MODE_AGENDA_ONLY, CHECK_MODE_NOTEBOOK_ONLY
 
 
 def test_auto_flag_priority_order() -> None:
@@ -141,3 +141,4 @@ def test_agenda_only_mode_ignores_missing_notebook() -> None:
         )
         == NO_ISSUE_FLAG
     )
+

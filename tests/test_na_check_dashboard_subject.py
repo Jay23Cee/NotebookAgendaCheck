@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 from nicegui import ui
 
-from app.nicegui_app.na_check.models import RosterStudent
-from app.nicegui_app.na_check.storage import CsvStore
-from app.nicegui_app.pages.na_check_dashboard import NACheckDashboard
+from notebookagendacheck.nicegui_app.na_check.models import RosterStudent
+from notebookagendacheck.nicegui_app.na_check.storage import CsvStore
+from notebookagendacheck.nicegui_app.pages.na_check_dashboard import NACheckDashboard
 
 
 @dataclass
@@ -251,3 +251,4 @@ def test_apply_preferences_migrates_legacy_period_to_subject(tmp_path: Path) -> 
     assert dashboard.grade_select.value == "6"
     assert dashboard.class_switch.value is False
     assert dashboard.date_input.value == "02/15/2026"
+
