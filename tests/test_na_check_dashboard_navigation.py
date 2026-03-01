@@ -6,7 +6,12 @@ import pytest
 from nicegui import ui
 
 from app.nicegui_app.na_check.models import RosterStudent
-from app.nicegui_app.pages.na_check_dashboard import NACheckDashboard
+from app.nicegui_app.pages.na_check_dashboard import (
+    CARD_EFFECT_ENTER,
+    CARD_EFFECT_NEXT,
+    CARD_EFFECT_SAVE,
+    NACheckDashboard,
+)
 
 
 @dataclass
@@ -46,6 +51,23 @@ class DummySelect:
 
 
 @dataclass
+class DummySwitch:
+    value: object = None
+
+    def __post_init__(self) -> None:
+        self.enabled = True
+
+    def update(self) -> None:
+        return None
+
+    def enable(self) -> None:
+        self.enabled = True
+
+    def disable(self) -> None:
+        self.enabled = False
+
+
+@dataclass
 class DummyButton:
     text: str = ""
     classes_value: str = ""
@@ -69,6 +91,20 @@ class DummyButton:
         self.enabled = False
 
 
+class DummyGrid:
+    def clear(self) -> None:
+        return None
+
+    def classes(self, *, replace: str | None = None, add: str | None = None, remove: str | None = None) -> None:
+        return None
+
+    def __enter__(self) -> DummyGrid:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+
 @pytest.fixture(autouse=True)
 def _stub_notify(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ui, "notify", lambda *_args, **_kwargs: None)
@@ -78,6 +114,7 @@ def _student(student_id: str) -> RosterStudent:
     return RosterStudent(
         grade="6",
         period="1",
+        subject="Math",
         student_id=student_id,
         student_name=f"Student {student_id}",
     )
@@ -89,7 +126,7 @@ def _dashboard() -> NACheckDashboard:
     dashboard.filtered_students = list(dashboard.roster)
     dashboard.date_input = DummyInput("02/22/2026")  # type: ignore[assignment]
     dashboard.grade_select = DummySelect(value="6")  # type: ignore[assignment]
-    dashboard.period_select = DummySelect(value="1")  # type: ignore[assignment]
+    dashboard.class_switch = DummySwitch(value=True)  # type: ignore[assignment]
     dashboard.student_select = DummySelect(  # type: ignore[assignment]
         value=[],
         options={student.student_id: student.student_name for student in dashboard.roster},
@@ -111,7 +148,8 @@ def test_select_next_not_checked_replaces_only_clicked_slot() -> None:
     dashboard._select_next_not_checked("S2")
 
     assert dashboard.selected_student_ids == ["S1", "S4", "S3"]
-    assert dashboard.status_message == "Moved to next unchecked student."
+    assert dashboard.status_message == "Moved to next student"
+    assert dashboard._pending_card_effect_by_student_id == {"S4": CARD_EFFECT_NEXT}
 
 
 def test_select_next_not_checked_stops_at_end_without_wrap() -> None:
@@ -121,7 +159,7 @@ def test_select_next_not_checked_stops_at_end_without_wrap() -> None:
     dashboard._select_next_not_checked("S3")
 
     assert dashboard.selected_student_ids == ["S3"]
-    assert dashboard.status_message == "No later unchecked student available."
+    assert dashboard.status_message == "No later remaining student available"
 
 
 def test_select_next_not_checked_when_all_checked_keeps_selection() -> None:
@@ -132,7 +170,7 @@ def test_select_next_not_checked_when_all_checked_keeps_selection() -> None:
     dashboard._select_next_not_checked("S2")
 
     assert dashboard.selected_student_ids == ["S2", "S3"]
-    assert dashboard.status_message == "All students checked for this date."
+    assert dashboard.status_message == "No remaining students for this date"
 
 
 def test_select_next_not_checked_skips_already_selected_students() -> None:
@@ -145,56 +183,140 @@ def test_select_next_not_checked_skips_already_selected_students() -> None:
     dashboard._select_next_not_checked("S1")
 
     assert dashboard.selected_student_ids == ["S3", "S2", "S4"]
-    assert dashboard.status_message == "Moved to next unchecked student."
+    assert dashboard.status_message == "Moved to next student"
 
 
-def test_toggle_not_checked_filter_prunes_picker_options_and_selection() -> None:
+def test_replace_saved_selected_cards_wraps_and_preserves_unsaved_slot() -> None:
+    dashboard = _dashboard()
+    dashboard.roster = [_student("S1"), _student("S2"), _student("S3"), _student("S4"), _student("S5")]
+    dashboard.filtered_students = list(dashboard.roster)
+    dashboard.student_select.options = {student.student_id: student.student_name for student in dashboard.roster}
+    dashboard.selected_student_ids = ["S3", "S4", "S5"]
+    dashboard.saved_keys = {_saved_key(dashboard, "S3"), _saved_key(dashboard, "S5")}
+
+    dashboard._replace_saved_selected_cards()
+
+    assert dashboard.selected_student_ids == ["S1", "S4", "S2"]
+    assert dashboard.status_message == "Replaced 2 saved card(s)"
+    assert dashboard._pending_card_effect_by_student_id == {"S1": CARD_EFFECT_NEXT, "S2": CARD_EFFECT_NEXT}
+
+
+def test_replace_saved_selected_cards_partial_when_remaining_pool_is_short() -> None:
+    dashboard = _dashboard()
+    dashboard.roster = [_student("S1"), _student("S2"), _student("S3"), _student("S4")]
+    dashboard.filtered_students = list(dashboard.roster)
+    dashboard.student_select.options = {student.student_id: student.student_name for student in dashboard.roster}
+    dashboard.selected_student_ids = ["S1", "S2", "S3"]
+    dashboard.saved_keys = {_saved_key(dashboard, "S1"), _saved_key(dashboard, "S2")}
+
+    dashboard._replace_saved_selected_cards()
+
+    assert dashboard.selected_student_ids == ["S4", "S2", "S3"]
+    assert dashboard.status_message == "Replaced 1 saved card(s); 1 saved card(s) unchanged"
+
+
+def test_replace_saved_selected_cards_no_saved_selected_cards() -> None:
     dashboard = _dashboard()
     dashboard.selected_student_ids = ["S1", "S2"]
-    dashboard.saved_keys = {_saved_key(dashboard, "S2")}
+    dashboard.saved_keys = {_saved_key(dashboard, "S3")}
 
-    dashboard._toggle_not_checked_filter()
+    dashboard._replace_saved_selected_cards()
 
-    assert dashboard.show_not_checked_only is True
-    assert dashboard.status_message == "Showing only not-checked students."
-    assert set(dashboard.student_select.options) == {"S1", "S3"}
-    assert dashboard.selected_student_ids == ["S1"]
-
-    dashboard._toggle_not_checked_filter()
-
-    assert dashboard.show_not_checked_only is False
-    assert dashboard.status_message == "Showing all students."
-    assert set(dashboard.student_select.options) == {"S1", "S2", "S3"}
+    assert dashboard.selected_student_ids == ["S1", "S2"]
+    assert dashboard.status_message == "No saved selected cards to replace"
 
 
-def test_available_students_for_picker_respects_filter_state() -> None:
+def test_replace_saved_selected_cards_with_no_selected_cards() -> None:
     dashboard = _dashboard()
-    dashboard.saved_keys = {_saved_key(dashboard, "S2")}
+    dashboard.selected_student_ids = []
 
-    dashboard.show_not_checked_only = False
-    assert [student.student_id for student in dashboard._available_students_for_picker()] == ["S1", "S2", "S3"]
+    dashboard._replace_saved_selected_cards()
 
-    dashboard.show_not_checked_only = True
-    assert [student.student_id for student in dashboard._available_students_for_picker()] == ["S1", "S3"]
+    assert dashboard.selected_student_ids == []
+    assert dashboard.status_message == "No selected students"
 
 
-def test_refresh_summary_strip_enables_global_filter_button_and_updates_label() -> None:
+def test_replace_saved_selected_cards_when_no_remaining_available() -> None:
     dashboard = _dashboard()
-    dashboard.group_summary_label = DummyLabel()  # type: ignore[assignment]
-    dashboard.progress_summary_label = DummyLabel()  # type: ignore[assignment]
-    dashboard.card_summary_label = DummyLabel()  # type: ignore[assignment]
-    dashboard.status_label = DummyLabel()  # type: ignore[assignment]
-    dashboard.filter_toggle_button = DummyButton()
+    dashboard.selected_student_ids = ["S1", "S2"]
+    dashboard.saved_keys = {_saved_key(dashboard, "S1"), _saved_key(dashboard, "S3")}
+
+    dashboard._replace_saved_selected_cards()
+
+    assert dashboard.selected_student_ids == ["S1", "S2"]
+    assert dashboard.status_message == "No remaining students available to replace saved cards"
+
+
+def test_refresh_summary_strip_enables_only_remaining_button_and_updates_label() -> None:
+    dashboard = _dashboard()
+    dashboard.selected_metric_label = DummyLabel()  # type: ignore[assignment]
+    dashboard.remaining_metric_label = DummyLabel()  # type: ignore[assignment]
+    dashboard.unsaved_metric_label = DummyLabel()  # type: ignore[assignment]
+    dashboard.only_remaining_button = DummyButton()
+    dashboard.selected_student_ids = ["S1", "S2", "S3"]
+    dashboard.saved_keys = {_saved_key(dashboard, "S1")}
+    dashboard._update_draft("S2", lambda form: setattr(form, "agenda_legible", False))
+
+    dashboard._refresh_summary_strip()
+
+    assert dashboard.only_remaining_button.enabled is True
+    assert dashboard.only_remaining_button.text == "Only Remaining"
+    assert dashboard.selected_metric_label.text == "3"
+    assert dashboard.remaining_metric_label.text == "2 of 3 visible"
+    assert dashboard.unsaved_metric_label.text == "2"
+
+    dashboard.selected_student_ids = []
+    dashboard._refresh_summary_strip()
+
+    assert dashboard.only_remaining_button.enabled is False
+    assert dashboard.only_remaining_button.text == "Only Remaining"
+
+
+def test_notify_status_ignores_deleted_slot_runtime_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    dashboard = _dashboard()
+
+    def raise_deleted_slot(*_args, **_kwargs) -> None:
+        raise RuntimeError("The parent element this slot belongs to has been deleted.")
+
+    monkeypatch.setattr(ui, "notify", raise_deleted_slot)
+    monkeypatch.setattr(dashboard.error_logger, "log_exception", lambda **_kwargs: None)
+
+    dashboard._notify_status("Message after re-render")
+
+
+def test_on_student_selection_change_queues_enter_effect_for_new_selection() -> None:
+    dashboard = _dashboard()
     dashboard.selected_student_ids = ["S1"]
+    dashboard.student_select.value = ["S1", "S2", "S3"]
 
-    dashboard._refresh_summary_strip()
+    dashboard._on_student_selection_change(None)  # type: ignore[arg-type]
 
-    assert dashboard.filter_toggle_button.enabled is True
-    assert dashboard.filter_toggle_button.text == "Not Checked Only"
+    assert dashboard.selected_student_ids == ["S1", "S2", "S3"]
+    assert dashboard._pending_card_effect_by_student_id == {
+        "S2": CARD_EFFECT_ENTER,
+        "S3": CARD_EFFECT_ENTER,
+    }
 
-    dashboard.filtered_students = []
-    dashboard.show_not_checked_only = True
-    dashboard._refresh_summary_strip()
 
-    assert dashboard.filter_toggle_button.enabled is False
-    assert dashboard.filter_toggle_button.text == "Show All"
+def test_compose_card_classes_includes_effect_class_when_queued() -> None:
+    dashboard = _dashboard()
+
+    base_class = dashboard._compose_card_classes("S1", is_saved=True, is_draft=False)
+    assert base_class == "na2-student-card na2-card-saved"
+
+    dashboard._queue_card_effect(["S1"], CARD_EFFECT_SAVE)
+    animated_class = dashboard._compose_card_classes("S1", is_saved=True, is_draft=False)
+    assert animated_class == "na2-student-card na2-card-saved na2-card-effect-save"
+
+
+def test_render_batch_cards_clears_pending_effects_after_refresh_cycle() -> None:
+    dashboard = _dashboard()
+    dashboard.batch_grid = DummyGrid()  # type: ignore[assignment]
+    dashboard.selected_student_ids = ["S1"]
+    dashboard._pending_card_effect_by_student_id = {"S1": CARD_EFFECT_SAVE}
+    dashboard._build_student_card = lambda _student, _render_index: None  # type: ignore[assignment]
+    dashboard._refresh_card = lambda _student_id: None  # type: ignore[assignment]
+
+    dashboard._render_batch_cards()
+
+    assert dashboard._pending_card_effect_by_student_id == {}

@@ -3,14 +3,21 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
-import json
 from pathlib import Path
+import uuid
 
 from nicegui import ui
 from nicegui.events import KeyEventArguments, ValueChangeEventArguments
 
-from app.constants import DEFAULT_OUTPUT_FILE, DEFAULT_STUDENTS_FILE, DEFAULT_UI_PREFERENCES_FILE
+from app.constants import (
+    DEFAULT_NA_CHECK_ERROR_LOG_FILE,
+    DEFAULT_NA_CHECK_QUARANTINE_DIR,
+    DEFAULT_OUTPUT_FILE,
+    DEFAULT_STUDENTS_FILE,
+    DEFAULT_UI_PREFERENCES_FILE,
+)
 from app.nicegui_app.na_check.models import CheckFormState, RosterStudent
+from app.nicegui_app.na_check.reliability import LogSeverity, NotificationSuppressor, ResilientErrorLogger
 from app.nicegui_app.na_check.roster import load_roster
 from app.nicegui_app.na_check.scoring import (
     COMMENT_PRESETS,
@@ -21,6 +28,26 @@ from app.nicegui_app.na_check.scoring import (
     score_form,
 )
 from app.nicegui_app.na_check.storage import CsvStore
+from app.nicegui_app.pages.dashboard_core.effects import (
+    compose_card_classes as core_compose_card_classes,
+    effect_class_for_student as core_effect_class_for_student,
+    queue_card_effect as core_queue_card_effect,
+    queue_enter_effect_for_new_selection as core_queue_enter_effect_for_new_selection,
+)
+from app.nicegui_app.pages.dashboard_core.formatting import (
+    comment_summary_text as core_comment_summary_text,
+    normalized_check_date as core_normalized_check_date,
+    tags_summary_text as core_tags_summary_text,
+)
+from app.nicegui_app.pages.dashboard_core.preferences import (
+    load_preferences as core_load_preferences,
+    persist_preferences as core_persist_preferences,
+)
+from app.nicegui_app.pages.dashboard_core.selection import (
+    find_next_remaining_candidate as core_find_next_remaining_candidate,
+    normalize_selected_student_ids,
+    remaining_student_ids,
+)
 from app.scoring import SCORE_MODEL_INTERNAL20_GRADEBOOK10_V1
 
 PREFERENCES_KEY = "na_check_dashboard"
@@ -28,6 +55,23 @@ MAX_SELECTED_STUDENTS = 3
 SAVED_OPTION_PREFIX = "__SAVED__|"
 TODO_OPTION_PREFIX = "__TODO__|"
 TEACHER_LABEL = "TEACHER"
+CLASS_OPTIONS = ("Math", "Science")
+SCIENCE_SUBJECT = "Science"
+MATH_SUBJECT = "Math"
+WRITE_STATE_IDLE = "IDLE"
+WRITE_STATE_SAVING = "SAVING"
+WRITE_STATE_SAVED = "SAVED"
+WRITE_STATE_UNSAVED_WRITE_FAILED = "UNSAVED_WRITE_FAILED"
+CARD_EFFECT_ENTER = "enter"
+CARD_EFFECT_NEXT = "next"
+CARD_EFFECT_SAVE = "save"
+CARD_EFFECT_UNDO = "undo"
+CARD_EFFECT_CLASS_BY_NAME = {
+    CARD_EFFECT_ENTER: "na2-card-effect-enter",
+    CARD_EFFECT_NEXT: "na2-card-effect-next",
+    CARD_EFFECT_SAVE: "na2-card-effect-save",
+    CARD_EFFECT_UNDO: "na2-card-effect-undo",
+}
 
 
 @dataclass
@@ -81,8 +125,34 @@ class NACheckDashboard:
         self.output_file = DEFAULT_OUTPUT_FILE
         self.preferences_file = DEFAULT_UI_PREFERENCES_FILE
 
-        self.store = CsvStore(self.output_file)
-        self.roster: list[RosterStudent] = load_roster(self.students_file)
+        self.session_id = uuid.uuid4().hex
+        self.error_logger = ResilientErrorLogger(
+            DEFAULT_NA_CHECK_ERROR_LOG_FILE,
+            session_id=self.session_id,
+        )
+        self.notification_suppressor = NotificationSuppressor(window_seconds=5.0)
+        self.write_state = WRITE_STATE_IDLE
+        self._startup_error_message: str | None = None
+
+        self.store = CsvStore(
+            self.output_file,
+            quarantine_dir=DEFAULT_NA_CHECK_QUARANTINE_DIR,
+            session_id=self.session_id,
+            logger=self.error_logger,
+        )
+        self.roster: list[RosterStudent] = []
+        try:
+            self.roster = load_roster(self.students_file)
+        except Exception as exc:  # noqa: BLE001
+            self._startup_error_message = "Roster unavailable. Check the roster file and retry."
+            self.error_logger.log_exception(
+                severity="CRITICAL",
+                source="NACheckDashboard",
+                operation="load_roster",
+                message=self._startup_error_message,
+                exception=exc,
+                context={"students_file": str(self.students_file)},
+            )
         self.filtered_students: list[RosterStudent] = []
 
         self.card_handles_by_student_id: dict[str, StudentCardHandles] = {}
@@ -90,27 +160,32 @@ class NACheckDashboard:
         self.expanded_keys: set[tuple[str, str]] = set()
         self.saved_keys: set[tuple[str, str]] = set()
         self.save_transactions: list[SaveTransaction] = []
+        self._pending_card_effect_by_student_id: dict[str, str] = {}
 
         self._syncing = False
-        self.status_message = "Select grade, period, and students to start grading."
+        self.status_message = self._startup_error_message or "Select grade, class, and students to start grading"
 
         self.grade_select: ui.select | None = None
-        self.period_select: ui.select | None = None
+        self.class_switch: ui.switch | None = None
+        self.class_science_label: ui.label | None = None
+        self.class_math_label: ui.label | None = None
         self.student_select: ui.select | None = None
         self.date_input: ui.input | None = None
         self.sticky_choices_switch: ui.switch | None = None
+        self._missing_subject_warning_grade: str | None = None
 
-        self.show_not_checked_only = False
         self.selected_student_ids: list[str] = []
 
         self.save_all_button: ui.button | None = None
         self.undo_button: ui.button | None = None
-        self.filter_toggle_button: ui.button | None = None
+        self.only_remaining_button: ui.button | None = None
 
-        self.group_summary_label: ui.label | None = None
-        self.progress_summary_label: ui.label | None = None
-        self.card_summary_label: ui.label | None = None
-        self.status_label: ui.label | None = None
+        self.selected_metric_label: ui.label | None = None
+        self.remaining_metric_label: ui.label | None = None
+        self.unsaved_metric_label: ui.label | None = None
+        self.selected_metric_tooltip: ui.label | None = None
+        self.remaining_metric_tooltip: ui.label | None = None
+        self.unsaved_metric_tooltip: ui.label | None = None
 
         self.batch_grid: ui.element | None = None
 
@@ -120,8 +195,7 @@ class NACheckDashboard:
         with ui.element("div").classes("na2-page"):
             with ui.element("div").classes("na2-sticky-wrap"):
                 self._build_top_bar()
-                self._build_global_actions()
-                self._build_summary_strip()
+                self._build_status_action_bar()
             self.batch_grid = ui.element("div").classes("na2-batch-grid na2-cols-3")
 
         ui.keyboard(on_key=self._on_keyboard, repeating=False, ignore=["textarea"])
@@ -130,6 +204,8 @@ class NACheckDashboard:
         self._reload_saved_keys_for_date()
         self._render_batch_cards()
         self._refresh_summary_strip()
+        if self._startup_error_message:
+            self._notify_status(self._startup_error_message, type="negative", timeout=4500)
 
     def _build_top_bar(self) -> None:
         with ui.row().classes("na2-topbar"):
@@ -140,12 +216,16 @@ class NACheckDashboard:
                 on_change=self._on_grade_change,
             ).classes("na2-control")
 
-            self.period_select = ui.select(
-                options={},
-                value=None,
-                label="Period",
-                on_change=self._on_period_change,
-            ).classes("na2-control")
+            with ui.column().classes("na2-control na2-class-toggle-wrap"):
+                ui.label("Class").classes("na2-class-toggle-label")
+                with ui.row().classes("na2-class-switch-row"):
+                    self.class_science_label = ui.label(SCIENCE_SUBJECT).classes("na2-class-side-label")
+                    self.class_switch = ui.switch(
+                        value=self._subject_to_switch(MATH_SUBJECT),
+                        on_change=self._on_class_change,
+                    ).classes("na2-class-switch")
+                    self.class_math_label = ui.label(MATH_SUBJECT).classes("na2-class-side-label")
+                self._refresh_class_switch_visual_state()
 
             self.student_select = ui.select(
                 options={},
@@ -203,13 +283,7 @@ class NACheckDashboard:
                 """,
             )
 
-            today = datetime.now().strftime("%m/%d/%Y")
-            self.date_input = ui.input(label="Date", value=today).props("readonly").classes("na2-control")
-            with ui.menu().props("no-parent-event") as date_menu:
-                ui.date(value=today).props("mask=MM/DD/YYYY").bind_value(self.date_input)
-            with self.date_input.add_slot("append"):
-                ui.icon("calendar_month").classes("cursor-pointer").on("click", date_menu.open)
-            self.date_input.on("change", self._on_date_change)
+            self._build_date_control()
 
             self.sticky_choices_switch = ui.switch(
                 "Sticky last choices",
@@ -217,38 +291,59 @@ class NACheckDashboard:
                 on_change=self._on_sticky_toggle,
             ).classes("na2-sticky-toggle")
 
-    def _build_global_actions(self) -> None:
-        with ui.row().classes("na2-actions-row"):
-            self.save_all_button = ui.button(
-                "Save Selected",
-                on_click=self._save_selected_students,
-            ).classes("na2-btn na2-btn-primary")
-            self.undo_button = ui.button(
-                "Undo Last Save",
-                on_click=self._undo_last_saved,
-            ).classes("na2-btn na2-btn-secondary")
-            self.filter_toggle_button = ui.button(
-                "Not Checked Only",
-                on_click=self._toggle_not_checked_filter,
-            ).classes("na2-btn na2-btn-secondary na2-filter-toggle-btn")
+    def _build_date_control(self, *, default_date: str | None = None) -> None:
+        value = default_date or datetime.now().strftime("%m/%d/%Y")
+        self.date_input = ui.input(label="Date", value=value).props("readonly").classes("na2-control")
+        with self.date_input:
+            with ui.menu().props('no-parent-event anchor="bottom right" self="top right"') as date_menu:
+                ui.date(
+                    value=value,
+                    on_change=lambda _event: date_menu.close(),
+                ).props("mask=MM/DD/YYYY").bind_value(self.date_input)
+        with self.date_input.add_slot("append"):
+            ui.icon("calendar_month").classes("cursor-pointer").on("click", date_menu.open)
+        self.date_input.on("click", date_menu.open)
+        self.date_input.on("change", self._on_date_change)
 
-    def _build_summary_strip(self) -> None:
-        with ui.row().classes("na2-summary-strip"):
-            with ui.column().classes("na2-summary-chip"):
-                ui.label("Selected").classes("na2-summary-title")
-                self.group_summary_label = ui.label(f"Selected 0 of {MAX_SELECTED_STUDENTS}").classes("na2-summary-value")
-            with ui.column().classes("na2-summary-chip"):
-                ui.label("Unchecked").classes("na2-summary-title")
-                self.progress_summary_label = ui.label("Unchecked 0 of 0").classes("na2-summary-value")
-            with ui.column().classes("na2-summary-chip"):
-                ui.label("Cards").classes("na2-summary-title")
-                self.card_summary_label = ui.label("Saved: 0 | Draft: 0 | Not saved: 0").classes("na2-summary-value")
-            with ui.column().classes("na2-summary-chip na2-summary-status"):
-                ui.label("Status").classes("na2-summary-title")
-                self.status_label = ui.label(self.status_message).classes("na2-status-text")
+    def _build_status_action_bar(self) -> None:
+        with ui.row().classes("na2-status-action-bar"):
+            with ui.row().classes("na2-status-metrics"):
+                with ui.element("div").classes("na2-status-metric na2-status-metric-selected"):
+                    ui.label("Selected").classes("na2-metric-label")
+                    self.selected_metric_label = ui.label("0").classes("na2-metric-value")
+                    self.selected_metric_tooltip = self.selected_metric_label.tooltip("0 students selected")
+
+                with ui.element("div").classes("na2-status-metric na2-status-metric-remaining"):
+                    ui.label("Remaining").classes("na2-metric-label")
+                    self.remaining_metric_label = ui.label("0 of 0 visible").classes("na2-metric-value")
+                    self.remaining_metric_tooltip = self.remaining_metric_label.tooltip(
+                        "0 students still need grading from 0 visible"
+                    )
+
+                with ui.element("div").classes("na2-status-metric na2-status-metric-unsaved"):
+                    ui.label("Unsaved changes").classes("na2-metric-label")
+                    self.unsaved_metric_label = ui.label("0").classes("na2-metric-value")
+                    self.unsaved_metric_tooltip = self.unsaved_metric_label.tooltip(
+                        "0 selected students have changes not saved"
+                    )
+
+            with ui.row().classes("na2-status-actions"):
+                self.save_all_button = ui.button(
+                    "Save",
+                    on_click=self._save_selected_students,
+                ).classes("na2-btn na2-btn-primary na2-status-action-btn")
+                self.undo_button = ui.button(
+                    "Undo",
+                    on_click=self._undo_last_saved,
+                ).classes("na2-btn na2-btn-secondary na2-status-action-btn")
+                self.only_remaining_button = ui.button(
+                    "Only Remaining",
+                    on_click=self._replace_saved_selected_cards,
+                ).classes("na2-btn na2-btn-tertiary na2-status-action-btn na2-only-remaining-btn")
 
     def _initialize_selectors(self) -> None:
         assert self.grade_select is not None
+        assert self.class_switch is not None
         assert self.student_select is not None
         assert self.date_input is not None
 
@@ -264,7 +359,7 @@ class NACheckDashboard:
             self.date_input.value = datetime.now().strftime("%m/%d/%Y")
             self.date_input.update()
 
-            self._refresh_period_options()
+            self._refresh_subject_options()
             self._reload_saved_keys_for_date()
             self._refresh_student_options(reset_selection=True)
             self._apply_preferences_if_enabled()
@@ -274,7 +369,7 @@ class NACheckDashboard:
     def _apply_preferences_if_enabled(self) -> None:
         assert self.sticky_choices_switch is not None
         assert self.grade_select is not None
-        assert self.period_select is not None
+        assert self.class_switch is not None
         assert self.student_select is not None
         assert self.date_input is not None
 
@@ -291,12 +386,17 @@ class NACheckDashboard:
             self.grade_select.value = saved_grade
             self.grade_select.update()
 
-        self._refresh_period_options()
+        self._refresh_subject_options()
 
-        saved_period = str(prefs.get("period", "")).strip()
-        if saved_period and saved_period in self.period_select.options:
-            self.period_select.value = saved_period
-            self.period_select.update()
+        saved_subject = str(prefs.get("subject", "")).strip()
+        if not saved_subject:
+            saved_subject = self._legacy_subject_from_period(str(prefs.get("period", "")).strip())
+        selected_grade = str(self.grade_select.value) if self.grade_select.value is not None else None
+        available_subjects = set(self._subject_options(selected_grade)[0])
+        if saved_subject and saved_subject in available_subjects:
+            self.class_switch.value = self._subject_to_switch(saved_subject)
+            self.class_switch.update()
+            self._refresh_class_switch_visual_state()
 
         self._reload_saved_keys_for_date()
         self._refresh_student_options(reset_selection=True)
@@ -311,16 +411,17 @@ class NACheckDashboard:
     def _on_grade_change(self, _event: ValueChangeEventArguments) -> None:
         if self._syncing:
             return
-        self._refresh_period_options()
+        self._refresh_subject_options()
         self._reload_saved_keys_for_date()
         self._refresh_student_options(reset_selection=True)
         self._render_batch_cards()
         self._refresh_summary_strip()
         self._persist_preferences()
 
-    def _on_period_change(self, _event: ValueChangeEventArguments) -> None:
+    def _on_class_change(self, _event: ValueChangeEventArguments) -> None:
         if self._syncing:
             return
+        self._refresh_class_switch_visual_state()
         self._reload_saved_keys_for_date()
         self._refresh_student_options(reset_selection=True)
         self._render_batch_cards()
@@ -330,7 +431,9 @@ class NACheckDashboard:
     def _on_student_selection_change(self, _event: ValueChangeEventArguments) -> None:
         if self._syncing:
             return
+        previous_ids = list(self.selected_student_ids)
         self._apply_selected_student_values(self.student_select.value if self.student_select else [])
+        self._queue_enter_effect_for_new_selection(previous_ids, self.selected_student_ids)
         self._render_batch_cards()
         self._refresh_summary_strip()
         self._persist_preferences()
@@ -340,10 +443,8 @@ class NACheckDashboard:
             return
         normalized = self._normalized_check_date(self.date_input.value if self.date_input else None)
         if normalized is None:
-            self.status_message = "Date must use MM/DD/YYYY."
-            if self.status_label is not None:
-                self.status_label.set_text(self.status_message)
-            ui.notify(self.status_message, type="warning")
+            self.status_message = "Date must use MM/DD/YYYY"
+            self._notify_status(self.status_message, type="warning")
             return
         assert self.date_input is not None
         self.date_input.value = normalized
@@ -363,36 +464,88 @@ class NACheckDashboard:
         grades = sorted({student.grade for student in self.roster}, key=self._sort_key)
         return {grade: f"Grade {grade}" if grade.isdigit() else grade for grade in grades}
 
-    def _period_options(self, grade: str | None) -> dict[str, str]:
+    def _subject_options(self, grade: str | None) -> tuple[dict[str, str], bool]:
         if not grade:
-            return {}
-        periods = sorted({student.period for student in self.roster if student.grade == grade}, key=self._sort_key)
-        return {period: period for period in periods}
+            return ({}, False)
+        grade_students = [student for student in self.roster if student.grade == grade]
+        if not grade_students:
+            return ({}, False)
 
-    def _refresh_period_options(self) -> None:
+        valid_subjects = sorted(
+            {
+                student.subject
+                for student in grade_students
+                if student.subject in CLASS_OPTIONS
+            },
+            key=self._sort_key,
+        )
+        has_missing_subject_data = any(student.subject not in CLASS_OPTIONS for student in grade_students)
+        return ({subject: subject for subject in valid_subjects}, has_missing_subject_data)
+
+    def _refresh_subject_options(self) -> None:
         assert self.grade_select is not None
-        assert self.period_select is not None
+        assert self.class_switch is not None
+        assert self.student_select is not None
 
         selected_grade = str(self.grade_select.value) if self.grade_select.value is not None else None
-        options = self._period_options(selected_grade)
-        self.period_select.options = options
-        if self.period_select.value not in options:
-            self.period_select.value = next(iter(options), None)
-        self.period_select.update()
+        options, has_missing_subject_data = self._subject_options(selected_grade)
+        available_subjects = set(options)
 
-    def _refresh_student_options(self, *, reset_selection: bool, notify_pruned: bool = False) -> None:
+        if has_missing_subject_data and selected_grade:
+            self.class_switch.value = self._subject_to_switch(SCIENCE_SUBJECT)
+            self.class_switch.update()
+            self.student_select.options = {}
+            self.student_select.update()
+            self._apply_selected_student_values([])
+            self._set_enabled(self.class_switch, False)
+            self._set_enabled(self.student_select, False)
+            self._refresh_class_switch_visual_state()
+
+            message = f"Grade {selected_grade} roster must include Subject values (Math/Science)"
+            self.status_message = message
+            if self._missing_subject_warning_grade != selected_grade:
+                self._notify_status(message, type="warning")
+                self._missing_subject_warning_grade = selected_grade
+            return
+
+        self._missing_subject_warning_grade = None
+        if not available_subjects:
+            self.class_switch.value = self._subject_to_switch(SCIENCE_SUBJECT)
+            self.class_switch.update()
+            self._set_enabled(self.class_switch, False)
+            self._set_enabled(self.student_select, False)
+            self._refresh_class_switch_visual_state()
+            return
+
+        current_subject = self._switch_to_subject(self.class_switch.value)
+        if current_subject not in available_subjects:
+            fallback_subject = SCIENCE_SUBJECT if SCIENCE_SUBJECT in available_subjects else next(iter(available_subjects))
+            self.class_switch.value = self._subject_to_switch(fallback_subject)
+            self.class_switch.update()
+
+        self._set_enabled(self.class_switch, len(available_subjects) > 1)
+        self._set_enabled(self.student_select, True)
+        self._refresh_class_switch_visual_state()
+
+    def _refresh_student_options(self, *, reset_selection: bool) -> None:
         assert self.grade_select is not None
-        assert self.period_select is not None
+        assert self.class_switch is not None
         assert self.student_select is not None
 
         grade = str(self.grade_select.value) if self.grade_select.value is not None else ""
-        period = str(self.period_select.value) if self.period_select.value is not None else ""
+        if self._missing_subject_warning_grade and grade == self._missing_subject_warning_grade:
+            self.filtered_students = []
+            self.student_select.options = {}
+            self.student_select.update()
+            self._apply_selected_student_values([])
+            return
+
+        subject = self._switch_to_subject(self.class_switch.value)
         self.filtered_students = [
-            student for student in self.roster if student.grade == grade and student.period == period
+            student for student in self.roster if student.grade == grade and student.subject == subject
         ]
 
-        available_students = self._available_students_for_picker()
-        options = {student.student_id: self._student_option_label(student) for student in available_students}
+        options = {student.student_id: self._student_option_label(student) for student in self.filtered_students}
 
         previous_selection = list(self.selected_student_ids)
         new_selection: list[str]
@@ -404,10 +557,6 @@ class NACheckDashboard:
         self.student_select.options = options
         self.student_select.update()
         self._apply_selected_student_values(new_selection)
-
-        if notify_pruned and len(new_selection) < len(previous_selection):
-            removed = len(previous_selection) - len(new_selection)
-            ui.notify(f"Hidden {removed} saved student(s) while Not Checked filter is on.", type="warning")
 
     def _render_batch_cards(self) -> None:
         if self.batch_grid is None:
@@ -424,22 +573,25 @@ class NACheckDashboard:
             if not students:
                 self._build_empty_selection_card()
             else:
-                for student in students:
-                    self._build_student_card(student)
+                for render_index, student in enumerate(students):
+                    self._build_student_card(student, render_index)
 
-        for student in students:
-            self._refresh_card(student.student_id)
+        try:
+            for student in students:
+                self._refresh_card(student.student_id)
+        finally:
+            self._pending_card_effect_by_student_id.clear()
 
     def _build_empty_selection_card(self) -> None:
         with ui.card().classes("na2-student-card na2-empty-card"):
             ui.label("No students selected").classes("na2-empty-title")
             ui.label(f"Select up to {MAX_SELECTED_STUDENTS} students to start grading.").classes("na2-empty-subtitle")
 
-    def _build_student_card(self, student: RosterStudent) -> None:
+    def _build_student_card(self, student: RosterStudent, render_index: int) -> None:
         default_form = self._ensure_draft(student.student_id)
         scores = score_form(default_form)
 
-        with ui.card().classes("na2-student-card") as root:
+        with ui.card().classes("na2-student-card").style(f"--na2-enter-delay: {render_index * 50}ms;") as root:
             with ui.row().classes("na2-card-header"):
                 with ui.column().classes("na2-card-title-wrap"):
                     ui.label(student.student_name).classes("na2-card-name")
@@ -447,9 +599,9 @@ class NACheckDashboard:
                 with ui.row().classes("na2-card-header-actions"):
                     status_chip = ui.chip("Not saved", selectable=False).classes("na2-card-status na2-status-not-saved")
                     next_ungraded_button = ui.button(
-                        "Next Ungraded",
+                        "Next Remaining",
                         on_click=lambda sid=student.student_id: self._select_next_not_checked(sid),
-                    ).props("dense no-caps").classes("na2-btn na2-btn-secondary na2-filter-toggle-btn")
+                    ).props("dense no-caps").classes("na2-btn na2-btn-secondary na2-card-utility-btn")
 
             lock_hint = ui.label("").classes("na2-lock-hint")
 
@@ -699,12 +851,7 @@ class NACheckDashboard:
 
         status_text = "Saved" if is_saved else ("Draft" if is_draft else "Not saved")
         status_class = "na2-status-saved" if is_saved else ("na2-status-draft" if is_draft else "na2-status-not-saved")
-        if is_saved:
-            card_class = "na2-student-card na2-card-saved"
-        elif is_draft:
-            card_class = "na2-student-card"
-        else:
-            card_class = "na2-student-card na2-card-pending"
+        card_class = self._compose_card_classes(student_id, is_saved=is_saved, is_draft=is_draft)
 
         expanded = key in self.expanded_keys
 
@@ -713,8 +860,8 @@ class NACheckDashboard:
             card.root.classes(replace=card_class)
             card.status_chip.set_text(status_text)
             card.status_chip.classes(replace=f"na2-card-status {status_class}")
-            card.next_ungraded_button.set_text("Next Ungraded")
-            card.next_ungraded_button.classes(replace="na2-btn na2-btn-secondary na2-filter-toggle-btn")
+            card.next_ungraded_button.set_text("Next Remaining")
+            card.next_ungraded_button.classes(replace="na2-btn na2-btn-secondary na2-card-utility-btn")
 
             card.agenda_present.value = "yes" if draft.agenda_present else "no"
             card.agenda_present.update()
@@ -800,22 +947,21 @@ class NACheckDashboard:
 
     def _save_students(self, students: list[RosterStudent]) -> None:
         if not students:
-            message = "No selected students."
+            message = "No selected students"
             self.status_message = message
             self._refresh_summary_strip()
-            ui.notify(message, type="warning")
+            self._notify_status(message, type="warning")
             return
 
         check_date = self._normalized_check_date(self.date_input.value if self.date_input else None)
         if check_date is None:
-            message = "Date must use MM/DD/YYYY before saving."
+            message = "Date must use MM/DD/YYYY before saving"
             self.status_message = message
             self._refresh_summary_strip()
-            ui.notify(message, type="negative")
+            self._notify_status(message, type="negative")
             return
 
         grade = str(self.grade_select.value) if self.grade_select and self.grade_select.value is not None else ""
-        period = str(self.period_select.value) if self.period_select and self.period_select.value is not None else ""
 
         rows_to_save: list[dict[str, object]] = []
         snapshots: list[SaveSnapshot] = []
@@ -849,7 +995,7 @@ class NACheckDashboard:
                     "StudentID": student.student_id,
                     "StudentName": student.student_name,
                     "Grade": grade,
-                    "Period": period,
+                    "Period": student.period,
                     "Date": check_date,
                     "Checker": TEACHER_LABEL,
                     "NotebookScore": scores.notebook_score,
@@ -876,123 +1022,145 @@ class NACheckDashboard:
             snapshots.append(SaveSnapshot(key=key, student=student, form=deepcopy(draft)))
 
         if rows_to_save:
-            self.store.append_rows(rows_to_save)
+            self._set_write_state(WRITE_STATE_SAVING)
+            try:
+                self.store.append_rows(rows_to_save)
+            except Exception as exc:  # noqa: BLE001
+                self._set_write_state(WRITE_STATE_UNSAVED_WRITE_FAILED)
+                self._handle_exception(
+                    severity="ERROR",
+                    operation="save_students",
+                    exception=exc,
+                    user_message="Unsaved - Write Failed",
+                    context={
+                        "students": [student.student_id for student in students],
+                        "check_date": check_date,
+                        "row_count": len(rows_to_save),
+                    },
+                )
+                self._refresh_summary_strip()
+                return
+
+            self._set_write_state(WRITE_STATE_SAVED)
             for snapshot in snapshots:
                 self.saved_keys.add(snapshot.key)
                 self.draft_state_by_key.pop(snapshot.key, None)
                 self.expanded_keys.discard(snapshot.key)
             self.save_transactions.append(SaveTransaction(entries=snapshots))
+            self._queue_card_effect([snapshot.student.student_id for snapshot in snapshots], CARD_EFFECT_SAVE)
+        else:
+            self._set_write_state(WRITE_STATE_IDLE)
 
         if rows_to_save and not skipped:
-            message = f"Saved {len(rows_to_save)} student(s)."
+            message = f"Saved {len(rows_to_save)} student(s)"
             self.status_message = message
-            ui.notify(message, type="positive")
+            self._notify_status(message, type="positive")
         elif rows_to_save and skipped:
             skipped_text = " | ".join(skipped)
-            message = f"Saved {len(rows_to_save)} student(s). Skipped: {skipped_text}"
+            message = f"Saved {len(rows_to_save)} student(s); skipped: {skipped_text}"
             self.status_message = message
-            ui.notify(message, type="warning")
+            self._notify_status(message, type="warning")
         else:
-            skipped_text = " | ".join(skipped) if skipped else "No eligible students to save."
-            message = f"No students saved. {skipped_text}"
+            skipped_text = " | ".join(skipped) if skipped else "No eligible students to save"
+            message = f"No students saved; {skipped_text}"
             self.status_message = message
-            ui.notify(message, type="warning")
+            self._notify_status(message, type="warning")
 
-        self._refresh_student_options(reset_selection=False, notify_pruned=self.show_not_checked_only)
+        self._refresh_student_options(reset_selection=False)
         self._render_batch_cards()
         self._refresh_summary_strip()
         self._persist_preferences()
+        if rows_to_save:
+            self._set_write_state(WRITE_STATE_IDLE)
 
     def _undo_last_saved(self) -> None:
         if not self.save_transactions:
-            message = "No save transaction to undo."
+            message = "No save transaction to undo"
             self.status_message = message
             self._refresh_summary_strip()
-            ui.notify(message, type="warning")
+            self._notify_status(message, type="warning")
             return
 
         transaction = self.save_transactions.pop()
         requested = len(transaction.entries)
-        removed = self.store.undo_last_saved_rows(requested)
+        self._set_write_state(WRITE_STATE_SAVING)
+        try:
+            removed = self.store.undo_last_saved_rows(requested)
+        except Exception as exc:  # noqa: BLE001
+            self.save_transactions.append(transaction)
+            self._set_write_state(WRITE_STATE_UNSAVED_WRITE_FAILED)
+            self._handle_exception(
+                severity="ERROR",
+                operation="undo_last_saved",
+                exception=exc,
+                user_message="Unsaved - Write Failed",
+                context={"requested": requested},
+            )
+            self._refresh_summary_strip()
+            return
 
         if removed <= 0:
             self.save_transactions.append(transaction)
-            message = "Unable to undo the last save transaction."
+            self._set_write_state(WRITE_STATE_IDLE)
+            message = "Unable to undo the last save transaction"
             self.status_message = message
             self._refresh_summary_strip()
-            ui.notify(message, type="negative")
+            self._notify_status(message, type="negative")
             return
 
         removed_entries = transaction.entries[-removed:]
         for snapshot in removed_entries:
             self.saved_keys.discard(snapshot.key)
             self.draft_state_by_key[snapshot.key] = deepcopy(snapshot.form)
+        self._queue_card_effect([snapshot.student.student_id for snapshot in removed_entries], CARD_EFFECT_UNDO)
 
         if removed < requested:
             remaining_entries = transaction.entries[: requested - removed]
             if remaining_entries:
                 self.save_transactions.append(SaveTransaction(entries=remaining_entries))
-            message = "Partially undid the last save transaction."
-            ui.notify(message, type="warning")
+            message = "Partially undid the last save transaction"
+            self._notify_status(message, type="warning")
         else:
-            message = "Undid the last save transaction."
-            ui.notify(message, type="positive")
+            message = "Undid the last save transaction"
+            self._notify_status(message, type="positive")
+        self._set_write_state(WRITE_STATE_SAVED)
 
         self.status_message = message
-        self._refresh_student_options(reset_selection=False, notify_pruned=self.show_not_checked_only)
+        self._refresh_student_options(reset_selection=False)
         self._render_batch_cards()
         self._refresh_summary_strip()
         self._persist_preferences()
-
-    def _toggle_not_checked_filter(self) -> None:
-        self.show_not_checked_only = not self.show_not_checked_only
-        if self.show_not_checked_only:
-            self.status_message = "Showing only not-checked students."
-        else:
-            self.status_message = "Showing all students."
-        self._refresh_student_options(reset_selection=False, notify_pruned=True)
-        self._render_batch_cards()
-        self._refresh_summary_strip()
-        self._persist_preferences()
+        self._set_write_state(WRITE_STATE_IDLE)
 
     def _select_next_not_checked(self, clicked_student_id: str) -> None:
         index_by_student_id = {student.student_id: index for index, student in enumerate(self.filtered_students)}
-        unchecked_ids = [
-            student.student_id
-            for student in self.filtered_students
-            if self._draft_key(student.student_id) not in self.saved_keys
-        ]
-        if not unchecked_ids:
-            self.status_message = "All students checked for this date."
+        remaining_ids = remaining_student_ids(
+            self.filtered_students,
+            saved_keys=self.saved_keys,
+            draft_key_for_student=self._draft_key,
+        )
+        if not remaining_ids:
+            self.status_message = "No remaining students for this date"
             self._refresh_summary_strip()
-            ui.notify(self.status_message, type="positive")
+            self._notify_status(self.status_message, type="positive")
             self._persist_preferences()
             return
 
         if clicked_student_id not in self.selected_student_ids or clicked_student_id not in index_by_student_id:
-            self.status_message = "Selected card is no longer available."
+            self.status_message = "Selected card is no longer available"
             self._refresh_summary_strip()
-            ui.notify(self.status_message, type="warning")
+            self._notify_status(self.status_message, type="warning")
             self._persist_preferences()
             return
 
-        anchor = index_by_student_id[clicked_student_id]
         blocked_ids = set(self.selected_student_ids)
         blocked_ids.discard(clicked_student_id)
-
-        replacement_id = next(
-            (
-                student_id
-                for student_id in unchecked_ids
-                if index_by_student_id[student_id] > anchor and student_id not in blocked_ids
-            ),
-            None,
-        )
+        replacement_id = self._find_next_remaining_candidate(clicked_student_id, blocked_ids=blocked_ids, wrap=False)
 
         if replacement_id is None:
-            self.status_message = "No later unchecked student available."
+            self.status_message = "No later remaining student available"
             self._refresh_summary_strip()
-            ui.notify(self.status_message, type="warning")
+            self._notify_status(self.status_message, type="warning")
             self._persist_preferences()
             return
 
@@ -1000,71 +1168,161 @@ class NACheckDashboard:
         clicked_index = updated_ids.index(clicked_student_id)
         updated_ids[clicked_index] = replacement_id
         self._apply_selected_student_values(updated_ids)
-        self.status_message = "Moved to next unchecked student."
+        self._queue_card_effect([replacement_id], CARD_EFFECT_NEXT)
+        self.status_message = "Moved to next student"
+        self._notify_status(self.status_message)
         self._render_batch_cards()
         self._refresh_summary_strip()
         self._persist_preferences()
 
-    def _refresh_filter_toggle_button(self) -> None:
-        if self.filter_toggle_button is None:
-            return
-        self.filter_toggle_button.set_text("Show All" if self.show_not_checked_only else "Not Checked Only")
-        self.filter_toggle_button.classes(
-            replace=(
-                "na2-btn na2-btn-secondary na2-filter-toggle-btn na2-filter-toggle-active"
-                if self.show_not_checked_only
-                else "na2-btn na2-btn-secondary na2-filter-toggle-btn"
-            )
+    def _find_next_remaining_candidate(self, anchor_student_id: str, *, blocked_ids: set[str], wrap: bool) -> str | None:
+        return core_find_next_remaining_candidate(
+            self.filtered_students,
+            anchor_student_id=anchor_student_id,
+            blocked_ids=blocked_ids,
+            saved_keys=self.saved_keys,
+            draft_key_for_student=self._draft_key,
+            wrap=wrap,
         )
+
+    def _replace_saved_selected_cards(self) -> None:
+        if not self.selected_student_ids:
+            self.status_message = "No selected students"
+            self._refresh_summary_strip()
+            self._notify_status(self.status_message, type="warning")
+            self._persist_preferences()
+            return
+
+        index_by_student_id = {student.student_id: index for index, student in enumerate(self.filtered_students)}
+        selected_saved_indices = [
+            index
+            for index, student_id in enumerate(self.selected_student_ids)
+            if student_id in index_by_student_id and self._draft_key(student_id) in self.saved_keys
+        ]
+        if not selected_saved_indices:
+            self.status_message = "No saved selected cards to replace"
+            self._refresh_summary_strip()
+            self._notify_status(self.status_message, type="warning")
+            self._persist_preferences()
+            return
+
+        updated_ids = list(self.selected_student_ids)
+        replaced_count = 0
+        unchanged_count = 0
+        replacement_ids: list[str] = []
+        for selected_index in selected_saved_indices:
+            anchor_student_id = updated_ids[selected_index]
+            blocked_ids = set(updated_ids)
+            blocked_ids.discard(anchor_student_id)
+            replacement_id = self._find_next_remaining_candidate(anchor_student_id, blocked_ids=blocked_ids, wrap=True)
+            if replacement_id is None:
+                unchanged_count += 1
+                continue
+            updated_ids[selected_index] = replacement_id
+            replaced_count += 1
+            replacement_ids.append(replacement_id)
+
+        if replaced_count == 0:
+            self.status_message = "No remaining students available to replace saved cards"
+            self._refresh_summary_strip()
+            self._notify_status(self.status_message, type="warning")
+            self._persist_preferences()
+            return
+
+        self._apply_selected_student_values(updated_ids)
+        self._queue_card_effect(replacement_ids, CARD_EFFECT_NEXT)
+        self._render_batch_cards()
+        self._refresh_summary_strip()
+        self._persist_preferences()
+
+        if unchanged_count == 0:
+            self.status_message = f"Replaced {replaced_count} saved card(s)"
+            self._notify_status(self.status_message, type="positive")
+            return
+
+        self.status_message = f"Replaced {replaced_count} saved card(s); {unchanged_count} saved card(s) unchanged"
+        self._notify_status(self.status_message, type="warning")
 
     def _refresh_summary_strip(self) -> None:
         if not all(
             [
-                self.group_summary_label,
-                self.progress_summary_label,
-                self.card_summary_label,
-                self.status_label,
+                self.selected_metric_label,
+                self.remaining_metric_label,
+                self.unsaved_metric_label,
             ]
         ):
             return
 
-        total_students = len(self.filtered_students)
-        unchecked_students = [
+        visible_count = len(self.filtered_students)
+        remaining_students = [
             student for student in self.filtered_students if self._draft_key(student.student_id) not in self.saved_keys
         ]
         students = self._current_selected_students()
-        saved_count = 0
-        draft_count = 0
-        not_saved_count = 0
-
-        for student in students:
-            key = self._draft_key(student.student_id)
-            form = apply_auto_rules(self._ensure_draft(student.student_id))
-            if key in self.saved_keys:
-                saved_count += 1
-            elif form != default_form_state():
-                draft_count += 1
-            else:
-                not_saved_count += 1
-
-        self.group_summary_label.set_text(f"Selected {len(students)} of {MAX_SELECTED_STUDENTS}")
-        self.progress_summary_label.set_text(f"Unchecked {len(unchecked_students)} of {total_students}")
-        self.card_summary_label.set_text(
-            f"Saved: {saved_count} | Draft: {draft_count} | Not saved: {not_saved_count}"
+        selected_count = len(students)
+        remaining_count = len(remaining_students)
+        unsaved_selected_count = sum(
+            1 for student in students if self._draft_key(student.student_id) not in self.saved_keys
         )
-        self.status_label.set_text(self.status_message)
-        self._refresh_filter_toggle_button()
+
+        self.selected_metric_label.set_text(str(selected_count))
+        self.remaining_metric_label.set_text(f"{remaining_count} of {visible_count} visible")
+        self.unsaved_metric_label.set_text(str(unsaved_selected_count))
+
+        if self.selected_metric_tooltip is not None:
+            self.selected_metric_tooltip.set_text(f"{selected_count} students selected")
+        if self.remaining_metric_tooltip is not None:
+            self.remaining_metric_tooltip.set_text(
+                f"{remaining_count} students still need grading from {visible_count} visible"
+            )
+        if self.unsaved_metric_tooltip is not None:
+            self.unsaved_metric_tooltip.set_text(
+                f"{unsaved_selected_count} selected students have changes not saved"
+            )
 
         if self.save_all_button is not None:
             self._set_enabled(self.save_all_button, bool(students))
-        if self.filter_toggle_button is not None:
-            self._set_enabled(self.filter_toggle_button, bool(self.filtered_students))
+        if self.only_remaining_button is not None:
+            self.only_remaining_button.set_text("Only Remaining")
+            self._set_enabled(self.only_remaining_button, bool(students))
         if self.undo_button is not None:
             self._set_enabled(self.undo_button, bool(self.save_transactions))
 
     def _current_selected_students(self) -> list[RosterStudent]:
         by_id = {student.student_id: student for student in self.filtered_students}
         return [by_id[student_id] for student_id in self.selected_student_ids if student_id in by_id]
+
+    def _queue_card_effect(self, student_ids: list[str], effect: str) -> None:
+        core_queue_card_effect(
+            pending_effects=self._pending_card_effect_by_student_id,
+            student_ids=student_ids,
+            effect=effect,
+            effect_class_by_name=CARD_EFFECT_CLASS_BY_NAME,
+        )
+
+    def _queue_enter_effect_for_new_selection(self, previous_ids: list[str], current_ids: list[str]) -> None:
+        core_queue_enter_effect_for_new_selection(
+            pending_effects=self._pending_card_effect_by_student_id,
+            previous_ids=previous_ids,
+            current_ids=current_ids,
+            effect=CARD_EFFECT_ENTER,
+            effect_class_by_name=CARD_EFFECT_CLASS_BY_NAME,
+        )
+
+    def _effect_class_for_student(self, student_id: str) -> str:
+        return core_effect_class_for_student(
+            pending_effects=self._pending_card_effect_by_student_id,
+            student_id=student_id,
+            effect_class_by_name=CARD_EFFECT_CLASS_BY_NAME,
+        )
+
+    def _compose_card_classes(self, student_id: str, *, is_saved: bool, is_draft: bool) -> str:
+        return core_compose_card_classes(
+            pending_effects=self._pending_card_effect_by_student_id,
+            student_id=student_id,
+            is_saved=is_saved,
+            is_draft=is_draft,
+            effect_class_by_name=CARD_EFFECT_CLASS_BY_NAME,
+        )
 
     def _ensure_draft(self, student_id: str) -> CheckFormState:
         key = self._draft_key(student_id)
@@ -1091,14 +1349,20 @@ class NACheckDashboard:
         self.saved_keys = set()
         if check_date is None:
             return
-        for record in self.store.list_saved_refs():
+        try:
+            saved_refs = self.store.list_saved_refs()
+        except Exception as exc:  # noqa: BLE001
+            self._handle_exception(
+                severity="ERROR",
+                operation="reload_saved_keys",
+                exception=exc,
+                user_message="Unable to load saved records",
+                context={"check_date": check_date},
+            )
+            return
+        for record in saved_refs:
             if record.check_date == check_date:
                 self.saved_keys.add((record.student_id, record.check_date))
-
-    def _available_students_for_picker(self) -> list[RosterStudent]:
-        if not self.show_not_checked_only:
-            return list(self.filtered_students)
-        return [student for student in self.filtered_students if self._draft_key(student.student_id) not in self.saved_keys]
 
     def _student_option_label(self, student: RosterStudent) -> str:
         prefix = SAVED_OPTION_PREFIX if self._draft_key(student.student_id) in self.saved_keys else TODO_OPTION_PREFIX
@@ -1108,22 +1372,13 @@ class NACheckDashboard:
         assert self.student_select is not None
 
         available_ids = list(self.student_select.options.keys())
-        incoming: list[str]
-        if isinstance(raw_values, list):
-            incoming = [str(value) for value in raw_values]
-        elif raw_values is None:
-            incoming = []
-        else:
-            incoming = [str(raw_values)]
-
-        deduped: list[str] = []
-        for student_id in incoming:
-            if student_id in available_ids and student_id not in deduped:
-                deduped.append(student_id)
-
-        trimmed = deduped[:MAX_SELECTED_STUDENTS]
-        if len(deduped) > MAX_SELECTED_STUDENTS:
-            ui.notify(f"You can select up to {MAX_SELECTED_STUDENTS} students.", type="warning")
+        trimmed, overflowed = normalize_selected_student_ids(
+            raw_values,
+            available_ids=available_ids,
+            max_selected=MAX_SELECTED_STUDENTS,
+        )
+        if overflowed:
+            self._notify_status(f"You can select up to {MAX_SELECTED_STUDENTS} students", type="warning")
 
         self.selected_student_ids = trimmed
         self._syncing = True
@@ -1134,21 +1389,10 @@ class NACheckDashboard:
             self._syncing = False
 
     def _tags_summary_text(self, selected_tags: list[str]) -> str:
-        if not selected_tags:
-            return "Tags: none"
-        labels = [TAG_LABEL_BY_KEY.get(tag, tag) for tag in selected_tags]
-        return f"Tags: {', '.join(labels[:3])}" + ("..." if len(labels) > 3 else "")
+        return core_tags_summary_text(selected_tags, tag_label_by_key=TAG_LABEL_BY_KEY)
 
     def _comment_summary_text(self, comment_checks: list[str], comment_text: str) -> str:
-        text = comment_text.strip()
-        if not text and comment_checks:
-            text = "; ".join(comment_checks)
-        if not text:
-            return "Comment: None"
-        snippet = text[:40]
-        if len(text) > 40:
-            snippet += "..."
-        return f"Comment: {snippet}"
+        return core_comment_summary_text(comment_checks, comment_text)
 
     def _flag_class(self, flag: str) -> str:
         lowered = flag.lower()
@@ -1159,16 +1403,59 @@ class NACheckDashboard:
         return "na2-flag-neutral"
 
     def _normalized_check_date(self, raw_value: str | None) -> str | None:
-        value = str(raw_value or "").strip()
-        if not value:
-            return None
-        for fmt in ("%m/%d/%Y", "%Y-%m-%d"):
-            try:
-                parsed = datetime.strptime(value, fmt)
-                return parsed.strftime("%m/%d/%Y")
-            except ValueError:
-                continue
-        return None
+        return core_normalized_check_date(raw_value)
+
+    def _notify_status(self, message: str, *, type: str = "info", timeout: int = 2500) -> None:
+        try:
+            ui.notify(message, type=type, position="top-right", timeout=timeout)
+        except RuntimeError as exc:
+            # NiceGUI can invalidate the originating slot during dynamic re-render; skip toast in that case.
+            if "parent element this slot belongs to has been deleted" in str(exc).lower():
+                self.error_logger.log_exception(
+                    severity="WARNING",
+                    source="NACheckDashboard",
+                    operation="notify_status",
+                    message="Skipped notify because UI slot was deleted during re-render",
+                    exception=exc,
+                    context={"message": message, "type": type, "timeout": timeout},
+                )
+                return
+            raise
+
+    def _set_write_state(self, state: str) -> None:
+        self.write_state = state
+
+    def _handle_exception(
+        self,
+        *,
+        severity: LogSeverity,
+        operation: str,
+        exception: BaseException | None,
+        user_message: str,
+        context: dict[str, object] | None = None,
+        notify: bool = True,
+    ) -> None:
+        exception_type = type(exception).__name__ if exception is not None else ""
+        self.error_logger.log_exception(
+            severity=severity,
+            source="NACheckDashboard",
+            operation=operation,
+            message=user_message,
+            exception=exception,
+            context=context,
+        )
+
+        signature = self.notification_suppressor.build_signature(
+            source="NACheckDashboard",
+            operation=operation,
+            exception_type=exception_type,
+            message=user_message,
+        )
+        should_notify, count = self.notification_suppressor.register(signature)
+        display_message = user_message if count == 1 else f"{user_message} (x{count})"
+        self.status_message = display_message
+        if notify and should_notify:
+            self._notify_status(display_message, type="negative")
 
     def _set_enabled(self, control: ui.element, enabled: bool) -> None:
         if enabled:
@@ -1181,54 +1468,91 @@ class NACheckDashboard:
             return (0, f"{int(value):06d}")
         return (1, value.lower())
 
+    def _subject_to_switch(self, subject: str) -> bool:
+        return subject == MATH_SUBJECT
+
+    def _switch_to_subject(self, value: object) -> str:
+        return MATH_SUBJECT if bool(value) else SCIENCE_SUBJECT
+
+    def _refresh_class_switch_visual_state(self) -> None:
+        if self.class_switch is None:
+            return
+        if self.class_science_label is None or self.class_math_label is None:
+            return
+        selected_subject = self._switch_to_subject(self.class_switch.value)
+        science_active = selected_subject == SCIENCE_SUBJECT
+        self.class_science_label.classes(
+            replace=(
+                "na2-class-side-label na2-class-side-active"
+                if science_active
+                else "na2-class-side-label na2-class-side-inactive"
+            )
+        )
+        self.class_math_label.classes(
+            replace=(
+                "na2-class-side-label na2-class-side-active"
+                if not science_active
+                else "na2-class-side-label na2-class-side-inactive"
+            )
+        )
+
+    def _legacy_subject_from_period(self, raw_period: str) -> str:
+        if not raw_period.isdigit():
+            return ""
+        period_number = int(raw_period)
+        if 1 <= period_number <= 3:
+            return "Math"
+        if 4 <= period_number <= 6:
+            return "Science"
+        return ""
+
     def _load_preferences(self) -> dict[str, object]:
-        if not self.preferences_file.exists():
-            return {}
-        try:
-            payload = json.loads(self.preferences_file.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return {}
-        if not isinstance(payload, dict):
-            return {}
-        prefs = payload.get(PREFERENCES_KEY)
-        if not isinstance(prefs, dict):
-            return {}
-        return prefs
+        def on_error(exc: Exception) -> None:
+            self._handle_exception(
+                severity="WARNING",
+                operation="load_preferences",
+                exception=exc,
+                user_message="Unable to read saved preferences; using defaults",
+                context={"preferences_file": str(self.preferences_file)},
+                notify=False,
+            )
+
+        return core_load_preferences(
+            self.preferences_file,
+            preferences_key=PREFERENCES_KEY,
+            on_error=on_error,
+        )
 
     def _persist_preferences(self) -> None:
         if not all(
             [
                 self.sticky_choices_switch,
                 self.grade_select,
-                self.period_select,
+                self.class_switch,
                 self.student_select,
                 self.date_input,
             ]
         ):
             return
 
-        payload: dict[str, object] = {}
-        if self.preferences_file.exists():
-            try:
-                raw = json.loads(self.preferences_file.read_text(encoding="utf-8"))
-                if isinstance(raw, dict):
-                    payload = raw
-            except (OSError, ValueError):
-                payload = {}
+        def on_error(exc: Exception) -> None:
+            self._handle_exception(
+                severity="ERROR",
+                operation="persist_preferences",
+                exception=exc,
+                user_message="Unable to save preferences",
+                context={"preferences_file": str(self.preferences_file)},
+            )
 
-        payload[PREFERENCES_KEY] = {
-            "sticky_enabled": bool(self.sticky_choices_switch.value),
-            "grade": str(self.grade_select.value or ""),
-            "period": str(self.period_select.value or ""),
-            "check_date": str(self.date_input.value or ""),
-        }
-
-        self.preferences_file.parent.mkdir(parents=True, exist_ok=True)
-        temp_file = self.preferences_file.with_name(f"{self.preferences_file.name}.tmp")
-        with temp_file.open("w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2, sort_keys=True)
-            handle.write("\n")
-        temp_file.replace(self.preferences_file)
+        core_persist_preferences(
+            self.preferences_file,
+            preferences_key=PREFERENCES_KEY,
+            sticky_enabled=bool(self.sticky_choices_switch.value),
+            grade=str(self.grade_select.value or ""),
+            subject=self._switch_to_subject(self.class_switch.value),
+            check_date=str(self.date_input.value or ""),
+            on_error=on_error,
+        )
 
     def _on_keyboard(self, event: KeyEventArguments) -> None:
         if not event.action.keydown or event.action.repeat:

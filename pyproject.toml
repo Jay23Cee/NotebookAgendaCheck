@@ -9,7 +9,6 @@ description = "Local notebook + agenda check workflow"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "flet==0.24.1",
     "nicegui==3.4.1",
     "openpyxl==3.1.2",
 ]
@@ -18,3 +17,7 @@ dependencies = [
 dev = [
     "pytest==8.3.3",
 ]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+namespaces = false

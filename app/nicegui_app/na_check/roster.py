@@ -8,10 +8,19 @@ from app.nicegui_app.na_check.models import RosterStudent
 
 GRADE_KEYS = ("grade", "classgrade")
 PERIOD_KEYS = ("period", "section", "block", "classperiod")
+SUBJECT_KEYS = ("subject", "class", "course", "contentarea")
 STUDENT_ID_KEYS = ("studentid", "student_id", "id", "sid")
 NAME_KEYS = ("name", "studentname", "full_name", "fullname")
 FIRST_NAME_KEYS = ("firstname", "first_name", "fname")
 LAST_NAME_KEYS = ("lastname", "last_name", "lname")
+
+SUBJECT_ALIASES = {
+    "math": "Math",
+    "mathematics": "Math",
+    "maths": "Math",
+    "science": "Science",
+    "sci": "Science",
+}
 
 
 def load_roster(path: Path) -> list[RosterStudent]:
@@ -30,6 +39,7 @@ def load_roster(path: Path) -> list[RosterStudent]:
         headers = [normalize_header(value) for value in header_row]
         idx_grade = find_index(headers, GRADE_KEYS)
         idx_period = find_index(headers, PERIOD_KEYS)
+        idx_subject = find_index(headers, SUBJECT_KEYS)
         idx_student_id = find_index(headers, STUDENT_ID_KEYS)
         idx_name = find_index(headers, NAME_KEYS)
         idx_first = find_index(headers, FIRST_NAME_KEYS)
@@ -52,10 +62,12 @@ def load_roster(path: Path) -> list[RosterStudent]:
 
             grade = value_at(values, idx_grade) or "Unknown"
             period = value_at(values, idx_period) or "Unknown"
+            subject = normalize_subject(value_at(values, idx_subject))
             students.append(
                 RosterStudent(
                     grade=grade,
                     period=period,
+                    subject=subject,
                     student_id=student_id,
                     student_name=name,
                 )
@@ -99,4 +111,9 @@ def resolve_name(values: list[object], *, idx_name: int | None, idx_first: int |
     last = value_at(values, idx_last)
     combined = " ".join(part for part in (first, last) if part)
     return combined.strip()
+
+
+def normalize_subject(raw_subject: str) -> str:
+    lowered = raw_subject.strip().lower()
+    return SUBJECT_ALIASES.get(lowered, "")
 
